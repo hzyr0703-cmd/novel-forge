@@ -1,0 +1,242 @@
+{
+  "schema_version": "1",
+  "capabilities": [
+    "写作门禁",
+    "命中率复核",
+    "双时间线校验",
+    "追踪状态机",
+    "字数口径",
+    "去AI味检测",
+    "标点归一",
+    "退化检测"
+  ],
+  "dependencies": [
+    {
+      "id": "python-runtime",
+      "type": "runtime",
+      "auth_type": "none",
+      "required": true,
+      "capabilities": ["写作门禁", "命中率复核", "双时间线校验", "追踪状态机", "字数口径"],
+      "checks": [
+        {
+          "id": "python-cli-probe",
+          "type": "cli",
+          "required": true,
+          "command": "python",
+          "min_version": "3.10",
+          "name": "Python 运行时"
+        }
+      ],
+      "setup": {
+        "official_home_url": "https://www.python.org/",
+        "official_docs_url": "https://docs.python.org/3/using/windows.html",
+        "download_url": "https://www.python.org/downloads/",
+        "steps": [
+          "从 python.org/downloads 下载 Windows 安装包",
+          "安装时勾选 Add python.exe to PATH",
+          "重开终端使 PATH 生效"
+        ],
+        "verify": "python --version 输出 ≥ 3.10；python scripts/check_environment.py 返回 ready",
+        "security": "仅使用官方安装包；本技能脚本不读写凭据、不访问网络",
+        "verified_at": "2026-10-06",
+        "applies_to_version": "1.0.0"
+      },
+      "degradation": [
+        {
+          "capability": "写作门禁",
+          "trigger": "python 不可用或 forge.py 执行失败",
+          "fallback": "停止写正文流程，报告缺失项",
+          "user_input": "可提供替代 Python 路径或选择暂停项目",
+          "limitations": "无可靠降级：门禁语义完全依赖 forge.py，跳过即失去硬拦截",
+          "evidence_label": "已验证",
+          "recovery": "按 references/setup-guide.md 安装 Python ≥ 3.10 后重跑 check_environment.py",
+          "stop_condition": "用户拒绝配置或安装失败时，本技能整体停止"
+        },
+        {
+          "capability": "追踪状态机",
+          "trigger": "python 不可用或 tracking_commit.py 执行失败",
+          "fallback": "停止登记新章节事实，保留既有追踪状态不动",
+          "user_input": "可要求仅产出正文草稿并显式标注未登记",
+          "limitations": "手动登记极易出错，不提供人工替代流程",
+          "evidence_label": "推断",
+          "recovery": "环境恢复后从最新 _tracking-state.json 续跑 commit",
+          "stop_condition": "连续登记失败 2 次即停止，报告准确报错"
+        },
+        {
+          "capability": "命中率复核",
+          "trigger": "python 不可用或 hitrate 执行失败",
+          "fallback": "停止打分流程并报告报错，不出结论",
+          "user_input": "可要求人工按 15 维表复核",
+          "limitations": "人工复核无单维满分约束，需声明修正分",
+          "evidence_label": "推断",
+          "recovery": "环境恢复后重跑 hitrate",
+          "stop_condition": "无法复核时不出结论"
+        },
+        {
+          "capability": "双时间线校验",
+          "trigger": "python 不可用或 truth 执行失败",
+          "fallback": "停止章节交付并报告冲突",
+          "user_input": "由用户裁定真相口径",
+          "limitations": "校验失败期间不判断一致性",
+          "evidence_label": "已验证",
+          "recovery": "修复追踪状态后重跑 truth",
+          "stop_condition": "冲突未裁定不续写"
+        },
+        {
+          "capability": "字数口径",
+          "trigger": "python 不可用或 wordcount 执行失败",
+          "fallback": "以脚本报错为准，不做估算",
+          "user_input": "欠字交用户决定是否补",
+          "limitations": "无脚本时字数不可判定",
+          "evidence_label": "已验证",
+          "recovery": "修复后重跑 wordcount",
+          "stop_condition": "字数不明不声明达标"
+        }
+      ]
+    },
+    {
+      "id": "node-runtime",
+      "type": "runtime",
+      "auth_type": "none",
+      "required": true,
+      "capabilities": ["去AI味检测", "标点归一", "退化检测"],
+      "checks": [
+        {
+          "id": "node-cli-probe",
+          "type": "cli",
+          "required": true,
+          "command": "node",
+          "min_version": "18",
+          "name": "Node.js 运行时"
+        }
+      ],
+      "setup": {
+        "official_home_url": "https://nodejs.org/",
+        "official_docs_url": "https://nodejs.org/en/download",
+        "download_url": "https://nodejs.org/en/download",
+        "steps": [
+          "从 nodejs.org 下载 LTS 安装包",
+          "安装后重开终端使 PATH 生效"
+        ],
+        "verify": "node --version 输出 ≥ v18；python scripts/check_environment.py 返回 ready",
+        "security": "仅使用官方安装包；lint 脚本只读写项目内正文文件，不访问网络",
+        "verified_at": "2026-10-06",
+        "applies_to_version": "1.0.0"
+      },
+      "degradation": [
+        {
+          "capability": "去AI味检测",
+          "trigger": "node 不可用或 check-ai-patterns.js 执行失败",
+          "fallback": "停止交付正文，AI 味 blocking=0 无法验证",
+          "user_input": "可要求仅返回草稿并显式标注「未过 lint」",
+          "limitations": "无可靠降级：人工排查 22 类规则覆盖不了，静默跳过等于放弃门禁",
+          "evidence_label": "已验证",
+          "recovery": "按 references/setup-guide.md 安装 Node ≥ 18 后重跑 check_environment.py",
+          "stop_condition": "用户拒绝配置或安装失败时，正文交付链路停止"
+        },
+        {
+          "capability": "退化检测",
+          "trigger": "node 不可用或 check-degeneration.js 执行失败",
+          "fallback": "停止交付，重生成检查无法执行",
+          "user_input": "可要求人工通读候选段落作为临时缓解",
+          "limitations": "人工通读对复读/截断类退化的召回显著低于脚本，仅作缓解不作替代",
+          "evidence_label": "推断",
+          "recovery": "环境恢复后对未检章节补跑全套 lint",
+          "stop_condition": "补跑无法完成时，相关章节保持未交付状态"
+        },
+        {
+          "capability": "标点归一",
+          "trigger": "node 不可用或 normalize-punctuation.js 执行失败",
+          "fallback": "停止去味流程（先归一否则 lint 位置漂移）",
+          "user_input": "",
+          "limitations": "顺序不可颠倒，无降级",
+          "evidence_label": "已验证",
+          "recovery": "修复后从归一步骤重跑",
+          "stop_condition": "归一不完成不进入 lint"
+        }
+      ]
+    }
+  ],
+  "functional_degradations": [
+    {
+      "capability": "写作门禁",
+      "trigger": "forge.py 报错或退出码非 0",
+      "fallback": "按 SKILL 失败策略停止并输出冲突报告",
+      "user_input": "由用户裁定修复方案",
+      "limitations": "门禁错误本身不降级，只报告",
+      "evidence_label": "已验证",
+      "recovery": "修复触发条件后重跑 gate",
+      "stop_condition": "门禁不过不交付"
+    },
+    {
+      "capability": "命中率复核",
+      "trigger": "hitrate 执行失败",
+      "fallback": "停止打分流程并报告报错",
+      "user_input": "可要求人工按 15 维表复核",
+      "limitations": "人工复核无单维满分约束，需声明修正分",
+      "evidence_label": "推断",
+      "recovery": "修复后重跑 hitrate",
+      "stop_condition": "无法复核时不出结论"
+    },
+    {
+      "capability": "双时间线校验",
+      "trigger": "truth 执行失败",
+      "fallback": "停止章节交付并报告冲突",
+      "user_input": "由用户裁定真相口径",
+      "limitations": "校验失败期间不判断一致性",
+      "evidence_label": "已验证",
+      "recovery": "修复追踪状态后重跑 truth",
+      "stop_condition": "冲突未裁定不续写"
+    },
+    {
+      "capability": "追踪状态机",
+      "trigger": "tracking_commit.py 校验失败",
+      "fallback": "保留 _tracking-state.json 原状，报告报错",
+      "user_input": "由用户决定是否手工修订 delta",
+      "limitations": "手工修订派生视图被禁止",
+      "evidence_label": "已验证",
+      "recovery": "修正 transaction 后重新 commit",
+      "stop_condition": "连续失败 2 次停止"
+    },
+    {
+      "capability": "字数口径",
+      "trigger": "wordcount 执行失败",
+      "fallback": "以脚本报错为准，不做估算",
+      "user_input": "欠字交用户决定是否补",
+      "limitations": "无脚本时字数不可判定",
+      "evidence_label": "已验证",
+      "recovery": "修复后重跑 wordcount",
+      "stop_condition": "字数不明不声明达标"
+    },
+    {
+      "capability": "去AI味检测",
+      "trigger": "check-ai-patterns.js 执行失败",
+      "fallback": "停止交付正文，标注「未过 lint」",
+      "user_input": "可要求仅出草稿",
+      "limitations": "人工排查 22 类规则覆盖不足",
+      "evidence_label": "已验证",
+      "recovery": "环境恢复后补跑",
+      "stop_condition": "blocking 无法清零不交付"
+    },
+    {
+      "capability": "标点归一",
+      "trigger": "normalize-punctuation.js 执行失败",
+      "fallback": "停止去味流程（先归一否则 lint 位置漂移）",
+      "user_input": "",
+      "limitations": "顺序不可颠倒，无降级",
+      "evidence_label": "已验证",
+      "recovery": "修复后从归一步骤重跑",
+      "stop_condition": "归一不完成不进入 lint"
+    },
+    {
+      "capability": "退化检测",
+      "trigger": "check-degeneration.js 执行失败",
+      "fallback": "停止交付，重生成该章",
+      "user_input": "可要求人工通读候选段",
+      "limitations": "人工召回低于脚本",
+      "evidence_label": "推断",
+      "recovery": "环境恢复后补跑",
+      "stop_condition": "退化未清零不交付"
+    }
+  ]
+}

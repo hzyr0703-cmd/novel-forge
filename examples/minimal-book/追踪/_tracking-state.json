@@ -1,0 +1,85 @@
+{
+  "book_title": "在此填书名※",
+  "characters": {
+    "主角名": {
+      "abilities_resources": [
+        "已获得的金手指/资源"
+      ],
+      "goal": "当前目标",
+      "identity": "身份与处境",
+      "knowledge": [
+        "知道：合同可能是假的"
+      ],
+      "location": "当前所在",
+      "open_threads": [
+        "那封没寄的信"
+      ],
+      "relationships": [
+        "与老王：名义下属，尚未信任"
+      ],
+      "state": "当前处境一句话"
+    }
+  },
+  "context": {
+    "active_character_names": [
+      "主角名"
+    ],
+    "continuity_risks": [
+      "连贯性风险例：第3章提到过老王左撇子，写到第 40 章时别写成右手"
+    ],
+    "long_term_constraints": [
+      "长线约束例：主角不知道父亲已签的那份合同"
+    ],
+    "next_chapter_commitments": [
+      "下一章必须兑现的承诺例：那封没寄的信要露一次头"
+    ],
+    "position": {
+      "scene": "律所办公室",
+      "story_time": "第5章结束的傍晚",
+      "volume": "第一卷",
+      "volume_start_chapter": 1
+    },
+    "recent_chapters": [
+      {
+        "chapter": 4,
+        "summary": "最近一章一句话摘要"
+      },
+      {
+        "chapter": 5,
+        "summary": "上一章一句话摘要"
+      }
+    ]
+  },
+  "foreshadow": {
+    "F001": {
+      "id": "F001",
+      "importance": "高",
+      "planned_resolution_chapter": 12,
+      "planted_chapter": 1,
+      "status": "已埋",
+      "summary": "老王提过「那封信我一直没寄出去」",
+      "updated_chapter": 5
+    }
+  },
+  "imported_through_chapter": 5,
+  "last_committed_chapter": 5,
+  "schema_version": 4,
+  "state_revision": 0,
+  "timeline": {
+    "E001": {
+      "characters": [
+        "主角",
+        "老王"
+      ],
+      "first_recorded_chapter": 5,
+      "id": "E001",
+      "objective_fact": "主角父亲私下签了一份转让协议，把律所核心客户交给了对家",
+      "reader_knowledge": "读者只知道主角父亲三年前签过一份文件、之后不久去世了",
+      "reveal_chapter": null,
+      "reveal_status": "未揭示",
+      "story_time": "三年前冬天",
+      "updated_chapter": 5
+    }
+  },
+  "wordcount_records": {}
+}

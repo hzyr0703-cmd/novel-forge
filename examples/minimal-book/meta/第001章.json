@@ -1,0 +1,15 @@
+{
+  "chapter": 1,
+  "title": "辞职信",
+  "temperature": "热",
+  "satisfaction": "当众亮合同逼老王失语",
+  "returns": ["信息", "情绪", "进展"],
+  "mid_hook": {
+    "position": 0.5,
+    "desc": "门被推开，脚步声停在门外"
+  },
+  "end_hook": {
+    "type": "H1",
+    "desc": "手机又亮，指向三年前那个号码"
+  }
+}
