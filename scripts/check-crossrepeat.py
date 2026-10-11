@@ -272,7 +272,49 @@ def build_index(chapters, num_perm=None):
     return records, signatures
 
 
-def scan(book_dir, threshold=None, num_perm=None, chapter_dir=None, verbose=False):
+def optimal_param(threshold, num_perm, wfp=0.4):
+    """datasketch 式最优 (b, r) 选参——数值积分，不引第三方依赖。
+
+    把 [0,1] 上的 Jaccard 相似度 s 当均匀分布，最小化
+    wfp×(0..t 的假阳性面积) + (1-wfp)×(t..1 的假阴性面积)。
+    默认 wfp=0.4 偏召回：门禁漏检的代价（复述章节流出）远高于
+    多验一些候选对的成本。t=0.5/num_perm=64 时给出 (16,4)，
+    P(0.8)=0.9998——与 2026-10-11 五百章埋点实测的选参一致。
+    """
+    n = 300
+    t = threshold
+    best = None
+    for b in range(1, num_perm + 1):
+        for r in range(1, num_perm // b + 1):
+            fp_area = sum(1 - (1 - (t / n * i) ** r) ** b for i in range(n)) * threshold / n
+            fn_area = sum((1 - (threshold + (1 - threshold) * i / n) ** r) ** b for i in range(n)) * (1 - threshold) / n
+            err = fp_area * wfp + fn_area * (1 - wfp)
+            if best is None or err < best[0]:
+                best = (err, b, r)
+    return best[1], best[2]
+
+
+def lsh_candidate_pairs(records, bands, rows):
+    """banding 生成候选章对（只剪候选，判定逻辑不动）。"""
+    buckets = defaultdict(list)
+    for rec in records:
+        sig = rec["sig"]
+        for bi in range(bands):
+            buckets[(bi, tuple(sig[bi * rows:(bi + 1) * rows]))].append(rec["chapter"])
+    cand = set()
+    for members in buckets.values():
+        if len(members) < 2:
+            continue
+        for i in range(len(members)):
+            for j in range(i + 1, len(members)):
+                ca, cb = members[i], members[j]
+                if ca != cb:
+                    cand.add((min(ca, cb), max(ca, cb)))
+    return cand
+
+
+def scan(book_dir, threshold=None, num_perm=None, chapter_dir=None, verbose=False,
+         since=None, banding=True):
     """主检测逻辑。返回 findings 列表。"""
     threshold = THRESHOLDS["jaccard"] if threshold is None else threshold
     num_perm = THRESHOLDS["num_perm"] if num_perm is None else num_perm
@@ -290,12 +332,24 @@ def scan(book_dir, threshold=None, num_perm=None, chapter_dir=None, verbose=Fals
     findings = []
     chapter_numbers = sorted(by_chapter)
 
+    # 候选剪枝（2026-10-11）：banding 只负责生成候选章对，判定逻辑零改动。
+    # 增量模式（--since）天然只有少量新章对全历史，无需剪枝。
+    bands = rows = None
+    candidates = None
+    if banding and since is None and len(chapter_numbers) > 40:
+        bands, rows = optimal_param(threshold, num_perm)
+        candidates = lsh_candidate_pairs(records, bands, rows)
+
     # 逐章两两比对。**双向**比对：单向前向匹配会让较早的章节把所有段
     # 都「匹配上」，把占比算成 100%，从而把「后面章节复述了前文两段」
     # 误报成「整章复述」。取两侧占比的较小值，才是对复述严重程度的
     # 如实刻画——它回答的是「有多少内容是被抄的」。
     for i, chap_a in enumerate(chapter_numbers):
         for chap_b in chapter_numbers[i + 1:]:
+            if since is not None and chap_b <= since:
+                continue  # 增量模式：只查晚于 since 的章（对全历史）
+            if candidates is not None and (chap_a, chap_b) not in candidates:
+                continue  # banding 剪枝：非候选对直接跳过
             segs_a = by_chapter[chap_a]
             segs_b = by_chapter[chap_b]
 
@@ -381,6 +435,11 @@ def scan(book_dir, threshold=None, num_perm=None, chapter_dir=None, verbose=Fals
         "findings": findings,
         "threshold": threshold,
         "num_perm": num_perm,
+        "mode": "incremental" if since is not None else ("banding" if candidates is not None else "full"),
+        "since": since,
+        "bands": bands,
+        "rows": rows,
+        "candidate_pairs": len(candidates) if candidates is not None else None,
     }
 
 
@@ -389,7 +448,10 @@ def render_text(result, book_dir):
     lines = [
         f"跨章自我复述检测  书：{os.path.basename(os.path.abspath(book_dir))}",
         f"  章节数 {result['chapters']}  段数 {result['segments']}"
-        f"  阈值 Jaccard>={result['threshold']}",
+        f"  阈值 Jaccard>={result['threshold']}"
+        f"  模式 {result['mode']}"
+        + (f"（since={result['since']}）" if result["mode"] == "incremental" else "")
+        + (f"（banding b={result['bands']} r={result['rows']}，候选对 {result['candidate_pairs']}）" if result["mode"] == "banding" else ""),
         "",
     ]
     if not findings:
@@ -422,6 +484,10 @@ def main():
     parser.add_argument("--dir", help="直接指定正文章节目录（覆盖 --book 推导）")
     parser.add_argument("--threshold", type=float, help=f"覆盖 Jaccard 阈值（默认 {THRESHOLDS['jaccard']}）")
     parser.add_argument("--num-perm", type=int, help=f"覆盖 MinHash 置换次数（默认 {THRESHOLDS['num_perm']}）")
+    parser.add_argument("--since", type=int, default=None, metavar="N",
+                        help="增量模式：只查章节号 > N 的章对全历史（每章提交后日常用）")
+    parser.add_argument("--no-banding", action="store_true",
+                        help="禁用 banding 候选剪枝，强制全量逐对比对（默认大书自动启用 banding）")
     parser.add_argument("--json", action="store_true", help="输出 JSON")
     parser.add_argument("--verbose", action="store_true", help="详细输出")
     args = parser.parse_args()
@@ -438,6 +504,8 @@ def main():
             num_perm=args.num_perm,
             chapter_dir=args.dir,
             verbose=args.verbose,
+            since=args.since,
+            banding=not args.no_banding,
         )
     except SystemExit as exc:
         print(str(exc), file=sys.stderr)
