@@ -494,15 +494,24 @@ def main():
         if args.chapter is None:
             print("[分布] --book 需配合 --chapter", file=sys.stderr)
             return 2
-        cand = [
-            os.path.join(args.book, "正文", "final", "第%03d章.md" % args.chapter),
-            os.path.join(args.book, "正文", "draft", "第%03d章.md" % args.chapter),
-            os.path.join(args.book, "正文", "第%03d章.md" % args.chapter),
-            os.path.join(args.book, "正文", "第%d章.md" % args.chapter),
-        ]
-        path = next((c for c in cand if os.path.exists(c)), None)
+        # v2.4.2：不再硬编码「第%03d章.md」精确名——真实书稿带标题后缀
+        # （第041章-纱后头那张纸.md），且 021/21 等命名变体也要兼容。
+        # 与 forge.py find_chapter_file 同口径：递归搜 正文/ 下首个数字匹配的文件。
+        found = []
+        body_root = os.path.join(args.book, "正文")
+        if os.path.isdir(body_root):
+            for dirpath, _dirnames, filenames in os.walk(body_root):
+                for name in filenames:
+                    if not name.lower().endswith(".md"):
+                        continue
+                    nums = re.findall(r"(\d+)", name)
+                    if nums and int(nums[0]) == args.chapter:
+                        found.append(os.path.join(dirpath, name))
+        # final 优先于 draft，其余按路径排序稳定输出
+        found.sort(key=lambda p: (0 if os.sep + "final" + os.sep in p else 1, p))
+        path = found[0] if found else None
         if not path:
-            print("[分布] 找不到第 %d 章（试过 final/draft/正文）" % args.chapter, file=sys.stderr)
+            print("[分布] 找不到第 %d 章（试过 final/draft/正文，兼容零填充与标题后缀）" % args.chapter, file=sys.stderr)
             return 2
 
     r = check_distribution(path, baseline_path=args.baseline)
