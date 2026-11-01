@@ -994,10 +994,11 @@ def cmd_diversity(args):
 
 def cmd_selftest(args):
     import shutil
-    tmp = os.path.join(os.path.dirname(os.path.abspath(__file__)), "_selftest")
-    if os.path.isdir(tmp):
-        shutil.rmtree(tmp, ignore_errors=True)
-    os.makedirs(tmp, exist_ok=True)
+    import tempfile
+    # 自检工作目录放系统临时区，不落在仓库里（v2.8）：此前建在 scripts/_selftest，
+    # Windows 上文件被占用时 shutil.rmtree(ignore_errors=True) 会静默失败，
+    # 残留 40+ 临时文件，一次 git add -A 就全进了版本库。
+    tmp = tempfile.mkdtemp(prefix="novel-forge-selftest-")
     cases = []
     try:
         _run_selftest_cases(tmp, cases)
