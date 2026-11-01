@@ -74,6 +74,10 @@ BLOCKING_TYPES = {
 def main():
     as_json = "--json" in sys.argv
     skills = read(os.path.join(ROOT, "SKILL.md"))
+    # v3.1 起资源地图与脚本表迁到 references/index.md（SKILL.md 只留路由），
+    # 这里做兼容读取：有 index.md 就查它，没有就退回 SKILL.md。
+    index_path = os.path.join(ROOT, "references", "index.md")
+    tables = read(index_path) if os.path.exists(index_path) else skills
     deslop = read(os.path.join(ROOT, "references", "deslop.md"))
     changelog = read(os.path.join(ROOT, "CHANGELOG.md"))
     platform_doc = read(os.path.join(ROOT, "references", "platform-adaptation.md"))
@@ -92,18 +96,18 @@ def main():
 
     # 1) 规则总数：抓具体句式，不用「N 类」这种到处都能出现的子串
     #    （负向测试过：只查子串时，把 90 改成 95 也能「全部一致」，因为别处还有 90）
-    need(re.search(r"AI 味检测（\*\*(\d+) 类规则\*\*", skills) is not None,
-         "SKILL.md 脚本表里找不到「AI 味检测（**N 类规则**」")
-    m = re.search(r"AI 味检测（\*\*(\d+) 类规则\*\*", skills)
+    need(re.search(r"AI 味检测（\*\*(\d+) 类规则\*\*", tables) is not None,
+         "脚本表（references/index.md）里找不到「AI 味检测（**N 类规则**」")
+    m = re.search(r"AI 味检测（\*\*(\d+) 类规则\*\*", tables)
     if m:
         need(int(m.group(1)) == total,
-             "SKILL.md 脚本表的规则数写的是 %s，实测 %d" % (m.group(1), total))
-    m = re.search(r"(\d+) 类 lint 规则全表", skills)
+             "脚本表的规则数写的是 %s，实测 %d" % (m.group(1), total))
+    m = re.search(r"(\d+) 类 lint 规则全表", tables)
     if m:
         need(int(m.group(1)) == total,
              "SKILL.md 资源地图的规则数写的是 %s，实测 %d" % (m.group(1), total))
     else:
-        problems.append("SKILL.md 资源地图找不到「N 类 lint 规则全表」")
+        problems.append("资源地图（references/index.md）找不到「N 类 lint 规则全表」")
     m = re.search(r"有 \*\*(\d+) 类规则\*\*", deslop)
     if m:
         need(int(m.group(1)) == total,
@@ -190,7 +194,7 @@ def main():
         xids = set(re.findall(r"\*\*(X-\d+)\*\*", rejected))
         need(len(xids) >= 8, "rejected-signals.md 只有 %d 条 X 级结论（至少要 8 条）" % len(xids))
         need("rejected-signals.md" in skills, "SKILL.md 没有路由到 rejected-signals.md（加规则前要能查到）")
-        need("test-rejected-signals.py" in skills, "SKILL.md 脚本表没登记 test-rejected-signals.py")
+        need("test-rejected-signals.py" in tables, "脚本表（references/index.md）没登记 test-rejected-signals.py")
         need("test-rejected-signals.py" in deslop, "deslop.md 没说明 X 级由谁守卫")
 
     # 7) 版本三处一致
