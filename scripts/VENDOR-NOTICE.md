@@ -7,7 +7,7 @@
 - **来源**：https://github.com/zenstory-ai/oh-story-claudecode/tree/main/skills/story-deslop/scripts
 - **项目**：oh-story-claudecode（ZenStory AI）
 - **许可**：MIT License，Copyright (c) 2025-2026 oh-story-claudecode
-- **引入原因**：22 类 AI 味检测规则与模型退化检测，每条阈值均以真实中文网文语料（七猫 5584 章 + 知乎盐言 3983 篇 + 《万疆》20 章 + demo 20 章）校准，误报率已压至 0.4% 量级。**重写会丢失校准精度**，故原样保留。
+- **引入原因**：AI 味检测规则（现 28 类，其中有 8 条 blocking）与模型退化检测，每条阈值均以真实中文网文语料（七猫 5584 章 + 知乎盐言 3983 篇 + 《万疆》20 章 + demo 20 章）校准，误报率已压至 0.4% 量级。**重写会丢失校准精度**，故原样保留。
 - **本地验证**：2026-10-04 于 Windows 11 + Node 运行通过，实测 5 类AI 腔全部命中。
 
 ## tracking_commit.py / wordcount_core.py

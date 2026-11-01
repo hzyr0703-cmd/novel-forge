@@ -1,0 +1,23 @@
+{
+  "dialogue_history": [
+    0.25,
+    0.25,
+    0.25,
+    0.25,
+    0.25,
+    0.25,
+    0.35,
+    0.35,
+    0.35,
+    0.35,
+    0.35,
+    0.35,
+    0.8659
+  ],
+  "hook_model": null,
+  "hook_history": [],
+  "temperature_run": [
+    "温"
+  ],
+  "frustration_run": 0
+}

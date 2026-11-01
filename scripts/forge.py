@@ -125,16 +125,19 @@ def find_chapter_file(book, chapter, layer=None):
 
 # ---------------------------------------------------------------- gate
 
-def run_spec(path, chapter=None):
+def run_spec(path, chapter=None, platform=None):
     """调用 spec_check.py 执行单章规格机检（SKILL.md 第六节，blocking/advisory 分层）。
 
     独立子进程调用而非 import：spec_check 会随规则演进入增改，进程隔离
     避免一次运行内的模块状态污染，也保证 spec_check 的 sys.exit 不带崩 gate。
+    platform 透传 --platform 预设（番茄/起点/七猫/盐言），换平台时字数带随之变。
     """
     cmd = [sys.executable, os.path.join(CWD, "spec_check.py"),
            "--file", path, "--json"]
     if chapter:
         cmd += ["--chapter", str(chapter)]
+    if platform:
+        cmd += ["--platform", str(platform)]
     if chapter == 1:
         cmd.append("--first-chapter")
     # v2.1.0：声明块在 meta/第N章.json，显式传路径（spec_check 也会自动回溯定位）。
@@ -341,30 +344,54 @@ def cmd_gate(args):
                 warns.append("上下文卡存在未解除的连贯性风险，开写前先读「连贯性风险」段确认。")
 
     # 正文全检（可选）
-    # v2.1.0 --stage 取值扩展为 outline|draft|final|all：
+    # --stage 取值 outline|draft|final|all：
     #   outline —— 只查细纲（新书第一次门禁）
     #   draft   —— 查 正文/draft/ 层（写正文阶段自查）
     #   final   —— 查 正文/final/ 层（定稿层交付前）
-    #   all     —— 同 draft（兼容旧脚本调用），正文层默认 draft
-    # 若显式给 --layer draft|final，则覆盖上面推断出的层。
+    #   all     —— v2.8 起真查 draft + final 两层（此前是 draft 的别名）
+    #
+    # 为什么改 all：旧版文档一边写「all 是别名，语义同 draft」，一边让 story-review
+    # 在交付前跑 gate --stage all——交付检查实际查的是初稿层，定稿层可能一次都没跑过门禁。
+    # 现在 all = 两层都查（final 不存在时只查 draft，并给出一条 advisory 提示）。
+    # 若显式给 --layer draft|final，则只查该层（显式覆盖优先）。
     lint_result = None
     spec_result = None
+    layer_reports = []
     need_body = args.stage in ("all", "draft", "final")
     if need_body:
-        layer = getattr(args, "layer", None)
-        if not layer:
-            layer = "final" if args.stage == "final" else "draft"
-        body = [p for p in find_chapter_file(book, args.chapter, layer=layer)]
-        body = [p for p in body if "正文" in p] if body else []
-        if not body:
-            errors.append("第 %d 章正文不存在（层=%s），无法执行 %s 阶段门禁。" % (args.chapter, layer, args.stage))
+        explicit_layer = getattr(args, "layer", None)
+        if explicit_layer:
+            layers = [explicit_layer]
+        elif args.stage == "final":
+            layers = ["final"]
+        elif args.stage == "all":
+            layers = ["draft", "final"]
         else:
-            lint_result = run_lint([body[0]])
-            if lint_result["blocking"] > 0:
-                errors.append("正文含 %d 处 blocking AI 味命中，必须改到 0。" % lint_result["blocking"])
-            spec_result = run_spec(body[0], args.chapter)
-            for msg in spec_result["errors"]:
-                errors.append("硬规格｜%s" % msg)
+            layers = ["draft"]
+        platform_arg = getattr(args, "platform", None)
+        for layer in layers:
+            body = [p for p in find_chapter_file(book, args.chapter, layer=layer)]
+            body = [p for p in body if "正文" in p] if body else []
+            if not body:
+                if args.stage == "all" and layer == "final":
+                    warns.append(
+                        "第 %d 章还没有定稿层（正文/final/），本次只查了 draft 层。"
+                        "交付前请人工重写进 final/ 再跑 --stage final 或 --stage all。" % args.chapter
+                    )
+                    continue
+                errors.append("第 %d 章正文不存在（层=%s），无法执行 %s 阶段门禁。" % (args.chapter, layer, args.stage))
+                continue
+            lr = run_lint([body[0]])
+            sr = run_spec(body[0], args.chapter, platform=platform_arg)
+            tag = "[%s] " % layer if len(layers) > 1 else ""
+            if lr["blocking"] > 0:
+                errors.append("%s正文含 %d 处 blocking AI 味命中，必须改到 0。" % (tag, lr["blocking"]))
+            for msg in sr["errors"]:
+                errors.append("%s硬规格｜%s" % (tag, msg))
+            layer_reports.append({"layer": layer, "path": body[0], "lint": lr, "spec": sr})
+        if layer_reports:
+            lint_result = layer_reports[0]["lint"]
+            spec_result = layer_reports[0]["spec"]
 
     # 跨章复述 + 事实冲突：全书级检查，与上面的单章检查性质不同。
     # 两项都可--skip 跳过（长篇调试期允许），但默认执行——
@@ -406,14 +433,21 @@ def cmd_gate(args):
     print("=" * 64)
     print("  追踪状态      : %s" % ("有" if tracking_ok else "缺失"))
     print("  细纲          : %s" % (os.path.basename(outline[0]) if outline_ok else "缺失"))
-    if lint_result is not None:
-        print("  正文 lint     : blocking %d / advisory %d" % (lint_result["blocking"], lint_result["advisory"]))
-    if spec_result is not None:
-        st = spec_result["stats"]
-        print("  硬规格        : 字数 %s ｜ 对话 %s ｜ 爽点 %s ｜ 钩子 %s ｜ 感官 %s ｜ 回报 %s ｜ 温度 %s"
-              % (st.get("字数", "-"), st.get("对话占比", "-"), st.get("爽点信号", "-"),
-                 st.get("章末钩子型号", "-"), st.get("感官", "-"), st.get("三重回报", "-"),
-                 st.get("情绪温度", "-")))
+    if layer_reports:
+        multi = len(layer_reports) > 1
+        for rep in layer_reports:
+            tag = ("[%s] " % rep["layer"]) if multi else ""
+            print("  %s正文 lint   : blocking %d / advisory %d"
+                  % (tag, rep["lint"]["blocking"], rep["lint"]["advisory"]))
+            st = rep["spec"]["stats"]
+            # 爽点信号与声明分列：混在一格会让人以为「声明 4」抵掉了「实测 2」（v2.8）
+            beats = st.get("爽点信号", "-")
+            if st.get("爽点声明") and st.get("爽点声明") != "无":
+                beats = "%s（声明 %s）" % (beats, st.get("爽点声明"))
+            print("  %s硬规格      : 字数 %s ｜ 对话 %s ｜ 爽点 %s ｜ 钩子 %s ｜ 感官 %s ｜ 回报 %s ｜ 温度 %s"
+                  % (tag, st.get("字数", "-"), st.get("对话占比", "-"), beats,
+                     st.get("章末钩子型号", "-"), st.get("感官", "-"), st.get("三重回报", "-"),
+                     st.get("情绪温度", "-")))
     if cross_result is not None:
         if cross_result.get("skipped"):
             print("  跨章复述      : 跳过（无正文目录，outline 阶段正常）")
@@ -447,9 +481,13 @@ def cmd_gate(args):
             print("  平台合规      : blocking %d ｜ warn %d" % (pb, pw))
     for w in warns:
         print("  [提示] %s" % w)
-    if spec_result:
-        for w in spec_result["warns"]:
-            print("  [提示] 硬规格｜%s" % w)
+    # advisory 按层逐条打印：--stage all 跑两层时，旧写法只打第一层的建议，
+    # 定稿层的问题会被吞掉（v2.8 修）。
+    _spec_layers = [r["spec"] for r in layer_reports] if layer_reports else ([spec_result] if spec_result else [])
+    for _rep, _spec in zip(layer_reports or [{}] * len(_spec_layers), _spec_layers):
+        _tag = ("[%s] " % _rep["layer"]) if len(_spec_layers) > 1 else ""
+        for w in _spec["warns"]:
+            print("  [提示] %s硬规格｜%s" % (_tag, w))
     if tone_result and tone_result.get("findings"):
         for f in tone_result["findings"]:
             unit = f.get("unit", "每千字")
@@ -478,7 +516,15 @@ def cmd_gate(args):
         print("门禁未通过：存在 %d 项硬错误，禁止写正文/ 交付。" % len(errors))
         return 1
     print("-" * 64)
-    print("门禁通过：可以进入正文写作。")
+    # 结论要说清「过的是哪一关」：outline 阶段是通过可以开写，final 阶段是通过可以交付。
+    # 旧版一律打印「可以进入正文写作」，跑完定稿层门禁也这么说，读的人会以为流程回到了起点。
+    passed = {
+        "outline": "可以进入正文写作（细纲与追踪齐备）。",
+        "draft": "初稿层通过。下一步：按第十一节人工审稿清单过一遍，再重写进 正文/final/。",
+        "final": "定稿层通过，可以导出交付（export.py）。",
+        "all": "draft 与 final 两层都通过，可以导出交付（export.py）。",
+    }.get(args.stage, "通过。")
+    print("门禁通过：%s" % passed)
     # advisory 挂账视图（ledger.py 只读，不参与退出码）：故意违背 advisory 时
     # 许下的「以后补」承诺在这里显示，超期标 ⚠。台账缺失/损坏都不影响门禁。
     try:
@@ -533,7 +579,7 @@ def run_dist_file(path):
         return {"advisories": []}
 
 
-def run_spec_file(path, prev=None, chapter=None):
+def run_spec_file(path, prev=None, chapter=None, platform=None):
     """单文件调用硬规格检测（selftest 用）。"""
     cmd = [sys.executable, os.path.join(CWD, "spec_check.py"),
            "--file", path, "--json"]
@@ -541,6 +587,8 @@ def run_spec_file(path, prev=None, chapter=None):
         cmd += ["--prev", prev]
     if chapter:
         cmd += ["--chapter", str(chapter)]
+    if platform:
+        cmd += ["--platform", str(platform)]
     p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
     try:
         return json.loads(p.stdout or "{}")
@@ -1320,6 +1368,81 @@ def _run_selftest_cases(tmp, cases):
                   p13b.returncode == 0 and "非功能对话" in (p13b.stdout or ""),
                   (p13b.returncode, (p13b.stdout or "").splitlines()[:1])))
 
+    # ---- 用例 14（v2.8，质检报告止血批）：三处「文档一套、机器一套」的判据改造
+    # 14a 段长两档：91–120 只给 1 段豁免，第 2 段起与 >120 一律 blocking。
+    # 旧版文档写「每章允许 1–2 段 70–100」、lint 写「>200 advisory」、spec 写 90 blocking，
+    # 91–100 字＝文档说可以、机器判死。现在只有一个事实源。
+    para = "风从巷口灌进来，把晾在竹竿上的衣服吹得噼啪响。" * 5   # 115 字
+
+    def _para_case(name, body):
+        fp = os.path.join(tmp, name + ".md")
+        with open(fp, "w", encoding="utf-8") as f:
+            f.write(body)
+        r = run_spec_file(fp)
+        return r, r["stats"].get("超长段落数")
+
+    r1, over1 = _para_case("para_one", para + "\n\n她没说话。\n")
+    r2, over2 = _para_case("para_two", para + "\n\n" + para + "\n")
+    r3, over3 = _para_case("para_over", ("他沿着河堤往下走，脚下的碎石被踩得咯吱作响，远处有人在收网。" * 5) + "\n")
+    cases.append(("用例14a 段长两档：1 段 115 字豁免、2 段与 150 字判死",
+                  over1 == 0 and over2 == 1 and over3 == 1,
+                  "one=%s two=%s over=%s" % (over1, over2, over3)))
+
+    # 14b 平台预设：3400 字在番茄超上限、在起点是常态
+    band = os.path.join(tmp, "band.md")
+    with open(band, "w", encoding="utf-8") as f:
+        # 145 段 × 23 字 ≈ 3335 字：番茄上限 3200 判超、起点带宽 2500–3500 判合格
+        f.write("\n\n".join(["风从巷口灌进来，把晾在竹竿上的衣服吹得噼啪响。"] * 145))
+    rf = run_spec_file(band, platform="fanqie")
+    rq = run_spec_file(band, platform="起点")
+    fan_words = rf["stats"].get("字数")
+    fans_ok = any("超上限" in e for e in rf["errors"])
+    qid_ok = not any("上限" in e or "低于下限" in e for e in rq["errors"])
+    cases.append(("用例14b 平台预设：同一章番茄判超上限、起点判合格", fans_ok and qid_ok,
+                  "字数=%s fanqie=%s qidian=%s" % (fan_words, fans_ok, qid_ok)))
+
+    # 14c 硬禁词同义对称：忽然/突然 起跳同判；句中用法放行
+    # 旧版只禁「忽然」，b 句换个同义词就零命中——门禁实际在教模型背替换表。
+    sym = os.path.join(tmp, "sym")
+    os.makedirs(sym, exist_ok=True)
+    pairs = {
+        "a": "他抬头。忽然，门口站了个人。他非常意外。\n",
+        "b": "他抬头。突然，门口站了个人。他特别意外。\n",
+        "c": "他忽然想起那年冬天，母亲在灶前添柴。\n",
+    }
+    bl = {}
+    for k, v in pairs.items():
+        fp = os.path.join(sym, k + ".md")
+        with open(fp, "w", encoding="utf-8") as f:
+            f.write(v)
+        bl[k] = run_lint([fp])["blocking"]
+    cases.append(("用例14c 硬禁词同义对称：忽然/突然 同判，句中忽然放行",
+                  bl["a"] == bl["b"] == 2 and bl["c"] == 0,
+                  "a=%s b=%s c=%s" % (bl["a"], bl["b"], bl["c"])))
+
+    # 14d --stage all 真查两层：draft 干净、final 有 blocking 时必须被拦住
+    lb = os.path.join(tmp, "allbook")
+    os.makedirs(os.path.join(lb, "追踪"), exist_ok=True)
+    os.makedirs(os.path.join(lb, "正文", "draft"), exist_ok=True)
+    os.makedirs(os.path.join(lb, "正文", "final"), exist_ok=True)
+    with open(os.path.join(lb, "追踪", "_tracking-state.json"), "w", encoding="utf-8") as f:
+        f.write("{}")
+    with open(os.path.join(lb, "第001章-测-细纲.md"), "w", encoding="utf-8") as f:
+        f.write("# 第001章 测\n\n字数范围：1800-3200\n\n- 情节点一\n")
+    clean = "他推开门，把伞收好。\n\n雨小了。\n"
+    with open(os.path.join(lb, "正文", "draft", "第001章-测.md"), "w", encoding="utf-8") as f:
+        f.write(clean)
+    with open(os.path.join(lb, "正文", "final", "第001章-测.md"), "w", encoding="utf-8") as f:
+        f.write(clean + "忽然，门开了。\n")
+    p_all = subprocess.run([sys.executable, os.path.join(CWD, "forge.py"), "gate",
+                            "--book", lb, "--chapter", "1", "--stage", "all",
+                            "--skip-cross", "--skip-fact", "--skip-platform", "--skip-tone"],
+                           capture_output=True, text=True, encoding="utf-8")
+    out_all = (p_all.stdout or "") + (p_all.stderr or "")
+    ok_all = p_all.returncode != 0 and "[final]" in out_all and "[draft]" in out_all
+    cases.append(("用例14d --stage all 真查 draft+final（final 的 blocking 被拦住）", ok_all,
+                  (p_all.returncode, out_all.strip().splitlines()[-1][:40] if out_all.strip() else "")))
+
 
 # ---------------------------------------------------------------- CLI
 
@@ -1332,7 +1455,9 @@ def main():
     g.add_argument("--chapter", type=int, required=True)
     g.add_argument("--stage", default="outline", choices=["outline", "draft", "final", "all"])
     g.add_argument("--layer", default=None, choices=["draft", "final"],
-                   help="显式指定检查的正文层（默认：stage=draft/all→draft，stage=final→final）")
+                   help="显式指定检查的正文层（只查该层；默认 stage=draft→draft，final→final，all→draft+final）")
+    g.add_argument("--platform", default=None,
+                   help="平台预设：fanqie（默认）/ qidian / qimao / yanyan，也认中文名（番茄/起点/七猫/盐言）")
     g.add_argument("--skip-cross", action="store_true",
                    help="跳过跨章自我复述检测（调试期可用；正式交付勿开）")
     g.add_argument("--skip-fact", action="store_true",

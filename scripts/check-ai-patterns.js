@@ -38,7 +38,7 @@ Detect high-risk AI-flavor prose patterns that need human rewrite:
 
 Book-local .deslop-whitelist literal spans are excluded from style scanning (no regex or ancestor inheritance).
 Each finding carries severity: blocking by default for generation/deslop cleanup (not-is-comparison / em-dash / voice-contrast / negation-parade / reverse-not-is / trailer-ending / trailer-summary). This is a local style/readability gate, not an AIGC detector score; functional human text can be marked for review instead of hard-edited for a detector.
-或 advisory (period-stutter / long-paragraph / micro-action-tic / negation-pair-tic / stock-reaction-tic / action-list-tic / abstract-summary-tic / cliche-density-tic / metaphor-density-tic / reasoning-chain-tic / system-notice-formality-tic / overcompressed-prose-tic / low-connective-density-tic / quote-emphasis-tic / formulaic-parallelism / weak-verb-tic / emotion-label-tic / crowd-sync-tic / filter-verb-tic / decorative-symbol / intensifier-abuse，是提示，justified 的长推理/氛围段可保留)。
+或 advisory (period-stutter / micro-action-tic / negation-pair-tic / stock-reaction-tic / action-list-tic / abstract-summary-tic / cliche-density-tic / metaphor-density-tic / reasoning-chain-tic / system-notice-formality-tic / overcompressed-prose-tic / low-connective-density-tic / quote-emphasis-tic / formulaic-parallelism / weak-verb-tic / emotion-label-tic / crowd-sync-tic / filter-verb-tic / decorative-symbol / intensifier-abuse，是提示，justified 的长推理/氛围段可保留)。
 --fail-on=blocking 只在出现 blocking finding 时退出 1；默认 --fail-on=all 有任何 finding 即退出 1。
 Each finding also carries review: mechanical（表面形态确定、就地改写即可）或 semantic（可能承担叙事功能，需读上下文判断是否保留）；blocking 一律 mechanical。--list-review-classes 输出完整分类表（JSON）。
 HTML comments (<!-- ... -->, e.g. the 去味:跳过 exemption marker) are metadata, not prose, and are never scanned.
@@ -57,8 +57,10 @@ const MAX_POSITIVE_SPAN = 80;
 // 只数叙述句，跳过对话/弹幕/系统播报（成片短句是这些体裁的正常形态，不算碎句号）。
 const STUTTER_MIN_RUN = 6;
 const STUTTER_MAX_SENTENCE = 5;
-// 长段落：单段原始字符数超过阈值即提示按镜头断段（手机阅读保守阈值，正常单段远低于此）。
-const LONG_PARAGRAPH_CHARS = 200;
+// 段长不在这里判：段长是「规格」（spec_check.py 的 blocking，90 字 + 每章 1 段 120 字豁免）。
+// v2.8 前本文件另有一条 long-paragraph（>200 字 advisory），与 spec_check 的 90 字 blocking
+// 对同一现象给出两种严重度——250 字的段落一个脚本说可留、一个判死。已删除，
+// 单一事实源留给 spec_check.THRESHOLDS["paragraph_max"]。
 
 // 群体同化（references/human-reaction.md H1/H4）：把一群人写成一个整体，是「人在演、
 // 没人在活」最强的指纹。分两档，避免把正常中文一起打掉：
@@ -90,7 +92,7 @@ const DECORATIVE_SYMBOL_PATTERN = /[✦✧✨❖◆◇▪▫★➤➢▶►]/g;
 
 // 极端词滥用（human-texture.md 八·1）：非常/极其/无比/十分/特别/极大/极为 一激动就堆，
 // 程度应靠具体画面给。只扫引号外叙述（台词里「非常」是口语自然，豁免）；密度型 ≥4 处报一条。
-const INTENSIFIER_PATTERN = /(?:非常|极其|极为|无比|十分|特别|极大|极度|异常)/g;
+const INTENSIFIER_PATTERN = /(?:非常|极其|极为|无比|十分|特别|格外|分外|相当|极度|异常|极大)/g;
 const INTENSIFIER_MIN_HITS = 4;
 
 // 微动作复读：「V了下 / V了一下 / 拍了两下 / 松了半圈」式轻量补语在叙述里高密度复现，
@@ -181,28 +183,65 @@ function inWorldRefGuard(m, masked) {
 // 逐处 blocking 的依据：这些词在叙述层不承担叙事功能，删掉不损失信息；
 // 出现在台词里是人物口语（「你非常生气」），故只扫引号外。
 // 校准：demo 前 20 章 +《万疆》20 章逐条人工复核，人物对话中的同类表达已豁免。
+// v2.8 判据改造（质检报告 P1-11「同义词逃逸」）：
+// 旧版只禁「忽然／非常」，放行「突然／特别」——两句话语义、节奏、画面完全相同，
+// 门禁把 a 判死、把 b 判活。结果是模型学到的是「忽然→突然」的替换表，
+// 而不是「用动作 beat 起跳」。这正是本技能想消灭的那种表层改写。
+// 现在按「位置 + 词族全集」判，不再按单个词判：
+//   1) 突变起跳副词：只在**段首／分句首**拦（它被当成句子的起跳器时）；
+//      句中的「他忽然想起」是正常中文，不拦。
+//   2) 程度副词 + 情绪形容词：只拦「副词直接修饰情绪词」这一位置，词族全收；
+//      「非常时期」「十分之一」这类非情绪搭配不拦。
+// 校准：a.md「他忽然抬头…他非常意外」与 b.md「他突然抬头…他特别意外」现同为 2 条 blocking。
+// 加新词往词族里加，别新开一条只禁一个词的规则——那等于给模型留了替换表。
+
+// 突变起跳副词族（同义全集）。含近义书面词，漏一个就等于漏一族。
+const SUDDEN_ADVERBS = [
+  '忽然', '突然', '蓦然', '猛然', '骤然', '霍然', '倏然', '陡然', '猛地', '腾地', '冷不丁',
+];
+const SUDDEN_ADVERB_PATTERN = new RegExp(`(?:${SUDDEN_ADVERBS.join('|')})`, 'g');
+
+// 分句边界：句末/句中标点、换行，或引号掩码后的占位符（maskQuoted 用 ？ 占位）。
+// 「起跳位置」＝这些字符之后（或文本开头）紧跟副词，副词承担了句子的开头。
+const CLAUSE_BREAK_CHARS = new Set([
+  '。', '！', '？', '!', '?', '…', '\n',
+  '，', ',', '；', ';', '：', ':', '、',
+  '」', '』', '”', '"', '）', ')',
+]);
+
+function atClauseStart(masked, index) {
+  if (index === 0) return true;
+  return CLAUSE_BREAK_CHARS.has(masked[index - 1]);
+}
+
+// 程度副词族 + 情绪形容词族：只在紧邻位置（可夹一个「的/地/得」）判 blocking。
+// 用形容词白名单而不是「任意后接字」，是为了不误伤「非常时期」「十分之一」。
+const INTENSIFIER_ADVERBS = [
+  '非常', '十分', '极其', '极为', '无比', '格外', '特别', '异常', '分外', '极度', '相当', '太',
+];
+const FLAT_EMOTION_ADJS = [
+  '生气', '愤怒', '恼火', '高兴', '开心', '快乐', '伤心', '难过', '痛苦', '悲伤',
+  '兴奋', '紧张', '害怕', '恐惧', '惊恐', '惊讶', '震惊', '吃惊', '意外', '诧异',
+  '失望', '绝望', '满意', '得意', '尴尬', '愧疚', '不安', '焦虑', '无奈', '委屈',
+  '疑惑', '困惑', '茫然', '失落', '遗憾', '厌烦', '烦躁', '疲倦', '疲惫',
+];
+const INTENSIFIER_EMOTION_PATTERN = new RegExp(
+  `(?:${INTENSIFIER_ADVERBS.join('|')})(?:的|地|得)?(?:${FLAT_EMOTION_ADJS.join('|')})`,
+  'g'
+);
+
 const HARD_BANNED_PATTERNS = [
-  // 转折副词：叙述层的「忽然/蓦然」几乎总能换成动作或时间词，删掉更干净
-  { pattern: /不禁/g, kind: '转折副词', advice: '删掉副词，直接写他做了什么；或换成具体动作起点。' },
-  { pattern: /忽然/g, kind: '转折副词', advice: '用动作 beat 替代：先写声音或触感，再写反应，别用「忽然」起跳。' },
-  { pattern: /蓦然/g, kind: '转折副词', advice: '「蓦然」是书面高危词，改为具体动作或时间词（那一刻/这时）。' },
-  { pattern: /恍惚/g, kind: '转折副词', advice: '写不清的状态不要用「恍惚」，落到具体感受：看不清、听不真、反应慢了半拍。' },
-  // 情绪直述词：叙述层直接命名情绪 = 替读者下结论
-  { pattern: /非常/g, kind: '情绪直述', advice: '程度副词删掉，用动作幅度或后果表示强度。' },
-  { pattern: /十分/g, kind: '情绪直述', advice: '「十分」+形容词=绕圈，直接写那个动作或后果。',
-    // 「十分」也是量词（十分满意/十分钟/十fen分）。只在「程度副词+形容词」位置算AI 腔，
-    // 量词用法（只剩十分钟、十分之一、十分感谢）豁免，否则「只剩十分钟」会被误判。
-    guard: (m, masked) => {
-      const after = masked.slice(m.index + 2);
-      const before = masked.slice(0, m.index);
-      // 后接数量/时间单位 → 量词用法
-      if (/^[钟分秒年月日天个人次种类]/.test(after)) return true;
-      if (/^[之]?[一二三四五六七八九十百千万]/.test(after)) return true;
-      // 前接「只剩/不到/超过」等数值语境 → 数量表达
-      if (/(?:只剩|剩下|不到|超过|不足|将近|约|近乎)[^。！？!?\n]{0,4}$/.test(before)) return true;
-      return false;
-    } },
-  { pattern: /极其/g, kind: '情绪直述', advice: '删掉程度副词；强度靠具体描写承担，不靠副词加码。' },
+  // 突变起跳：位置规则，句中用法放行（「他忽然想起」不算）
+  { pattern: SUDDEN_ADVERB_PATTERN, kind: '突变起跳', guard: (m, masked) => !atClauseStart(masked, m.index),
+    advice: '别用「忽然/突然」起跳。改成动作 beat：先给声音、触感或别人的反应，读者自己会感到突然。换同义词（忽然→突然）不算改。' },
+  // 状态直述：写不清的状态，落到具体感受
+  { pattern: /恍惚/g, kind: '状态直述', advice: '不要用「恍惚」概括状态，落到具体感受：看不清、听不真、反应慢了半拍。' },
+  // 程度副词 + 情绪形容词：位置规则，不再逐个禁词。
+  // 「非常时期」「十分之一」「只剩十分钟」不在位置内，自动放行；
+  // 否定式「不太高兴」「不十分满意」是克制的写法，放行。
+  { pattern: INTENSIFIER_EMOTION_PATTERN, kind: '情绪直述',
+    guard: (m, masked) => m.index > 0 && masked[m.index - 1] === '不',
+    advice: '程度副词+情绪词＝替读者定强度。删掉副词，写能看出强度的动作或后果。换同义词（非常→特别/格外）不算改。' },
   { pattern: /很(?:生气|伤心|高兴|愤怒|难过|兴奋|紧张|害怕|惊讶)/g, kind: '情绪直述', advice: '情绪直述词删掉，改为身体反应或选择变化（他摔了门/她没接话）。' },
   { pattern: /内心(?:充满|涌起|深藏|一片)/g, kind: '情绪直述', advice: '「内心…」是叙述者盖章，改为让读者从动作里读出来。' },
   { pattern: /感到(?:愤怒|悲伤|喜悦|恐惧|惊讶|兴奋|绝望|不满)/g, kind: '情绪直述', advice: '「感到X」是替读者总结，改为具体生理反应或行为后果。' },
@@ -402,7 +441,6 @@ const QUOTE_EMPHASIS_SPEECH_VERB_PATTERN = /[说道问喊答念叫回吼骂写�
 //   trailer-ending               mechanical  文末窗口固定预告短语，blocking
 //   trailer-summary              mechanical  文末窗口固定总结短语，blocking
 //   em-dash                      mechanical  标点，blocking
-//   long-paragraph               mechanical  段长阈值，断段即可
 //   period-stutter               mechanical  连续短句计数，合句即可
 //   micro-action-tic             mechanical  固定补语「了下/了一下」密度
 //   negation-pair-tic            semantic    「没A，也没B」否定对偶，留真正要强调的
@@ -426,7 +464,6 @@ const REVIEW_CLASSES = Object.freeze({
   'trailer-ending': 'mechanical',
   'trailer-summary': 'mechanical',
   'em-dash': 'mechanical',
-  'long-paragraph': 'mechanical',
   'period-stutter': 'mechanical',
   'micro-action-tic': 'mechanical',
   'negation-pair-tic': 'semantic',
@@ -626,16 +663,6 @@ function scanProsePatterns(proseLines) {
       });
     }
 
-    if (trimmed.length > LONG_PARAGRAPH_CHARS) {
-      findings.push({
-        line: lineNo,
-        column: 1,
-        type: 'long-paragraph',
-        severity: 'advisory',
-        message: `段落过长（${trimmed.length} 字）：按镜头/新动作/新线索/视线切换断段，别一段到底。`,
-        excerpt: compact(trimmed.slice(0, 40)),
-      });
-    }
   }
 
   findings.push(...findHardBanned(proseLines));

@@ -129,6 +129,6 @@
   （对话直白、类型契约、字数压力）；增加评分纪律（证据要求、双 35 线、
   不凑分原则）；标注与机检层的分工对照
 - 上游的 phrases.md / structures.md 是英文规则清单，**未移植**——
-  中文侧的对应能力已由 `check-ai-patterns.js`（22 类）与
+  中文侧的对应能力已由 `check-ai-patterns.js`（28 类，以 `--list-review-classes` 为准）与
   `check-chinese-tone.py`（lieflat 11 项）覆盖，重复移植是双报
 - 改动请追加记录：改了什么 + 为什么 + 如何验证

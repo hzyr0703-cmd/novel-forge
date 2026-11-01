@@ -263,8 +263,8 @@ AI 常突然引一个和故事调性不搭的东西：通俗爽文里冒古诗�
 
 本文件的方法论逆向自以下 MIT 许可项目，已改写为可执行规则并做适配，未逐字复制原文：
 
-- **tance-mang/chinese-webnovel-skills**（MIT，95★）：`references/human-texture.md`「失控感」框架、`references/show-emotion.md` 六通道与情绪对照表、`references/anti-ai-checklist.md` 语域/极端词/同义反复/装饰符号、`references/dialogue-library.md` 对话六病与五原则
-- **PenglongHuang/chinese-novelist-skill**（MIT，4506★）：`references/guides/character-building.md` 矛盾创造深度、侧面揭示三法
+- **tance-mang/chinese-webnovel-skills**（MIT，95★）：其仓库内的 `references/human-texture.md`「失控感」框架、`references/show-emotion.md` 六通道与情绪对照表、`references/anti-ai-checklist.md` 语域/极端词/同义反复/装饰符号、`references/dialogue-library.md` 对话六病与五原则（以上均为**上游仓库路径**，本 skill 内没有同名文件，别当成本地引用去读）
+- **PenglongHuang/chinese-novelist-skill**（MIT，4506★）：其仓库内的 `references/guides/character-building.md` 矛盾创造深度、侧面揭示三法（上游路径）
 - 另参考 **zenstory-ai/oh-story-claudecode**（MIT，8201★）的 skill 分层思路
 
 「本 skill 不采纳」一节为本地判断，非上游内容。

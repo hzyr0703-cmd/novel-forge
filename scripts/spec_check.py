@@ -56,8 +56,14 @@ THRESHOLDS = {
     "first_chapter_words_min": 1500,
     "first_chapter_words_max": 2000,
 
-    # | 段落长度 | ≤ 90 字 [blocking] |（v2.0 从 60 放宽，允许偶尔长段）
+    # | 段落长度 | ≤ 90 字 [blocking]；每章允许 1 段放到 120 字 [豁免] |
+    # v2.8 统一口径：此前文档写「每章允许一到两段 70–100 字」、lint 写「>200 字 advisory」、
+    # 本脚本写 90 blocking——三套数字互相打架（91–100 字＝文档说可以、机器判死）。
+    # 现在只有一个事实源：常态上限 90；91–120 只给 1 段豁免（长段是节奏工具，不是默认形态）；
+    # >120 一律 blocking。第七节正向约束第 7 条的说法同步改成这个口径。
     "paragraph_max": 90,
+    "paragraph_exempt_max": 120,
+    "paragraph_exempt_quota": 1,
 
     # | 对话占比 | 20%–55% [advisory] |（v2.0 双向放宽；下限防叙述堆砌，上限防对话注水）
     "dialogue_ratio_min": 0.20,
@@ -96,6 +102,67 @@ THRESHOLDS = {
     "temperature_same_run_max": 3,
     "frustration_run_max": 2,
 }
+
+# ---------------------------------------------------------------- 平台预设
+# v2.8：把 references/platform-adaptation.md 的表格变成可执行开关。
+# 此前文档写「起点 2500–3500/章」，本脚本上限硬编码 3200 且没有任何平台入口，
+# 同一份文档结尾又写「不要为迁就平台改阈值」——三条互相矛盾，照着做必然撞墙。
+# 现在只换「字数带 + 爽点/微钩子间隔」这几项平台性参数；
+# AI 味、跨章复述、事实冲突、段长都与平台无关，一律不动。
+# 首章口径按各平台「黄金三章字数」一栏同步。
+PLATFORM_PRESETS = {
+    # 番茄（默认）：免费+广告分成，完读率驱动，节奏最快
+    "fanqie": {
+        "words_min": 1800, "words_max": 3200,
+        "first_chapter_words_min": 1500, "first_chapter_words_max": 2000,
+        "beat_hard_gap": 800, "microhook_gap": 500,
+    },
+    # 起点：订阅制，信息量更重，读者容忍铺垫
+    "qidian": {
+        "words_min": 2500, "words_max": 3500,
+        "first_chapter_words_min": 2500, "first_chapter_words_max": 3500,
+        "beat_hard_gap": 1000, "microhook_gap": 800,
+    },
+    # 七猫：免费+分成，节奏比番茄还快
+    "qimao": {
+        "words_min": 1800, "words_max": 2500,
+        "first_chapter_words_min": 1500, "first_chapter_words_max": 2000,
+        "beat_hard_gap": 600, "microhook_gap": 400,
+    },
+    # 知乎盐言：盐选付费，短章高密度
+    "yanyan": {
+        "words_min": 1200, "words_max": 2000,
+        "first_chapter_words_min": 1000, "first_chapter_words_max": 1500,
+        "beat_hard_gap": 600, "microhook_gap": 300,
+    },
+}
+
+# 中文名与常见写法都能认，省得记 key
+PLATFORM_ALIASES = {
+    "番茄": "fanqie", "番茄小说": "fanqie", "fanqie": "fanqie",
+    "起点": "qidian", "起点中文网": "qidian", "qidian": "qidian",
+    "七猫": "qimao", "七猫中文网": "qimao", "qimao": "qimao",
+    "盐言": "yanyan", "知乎盐言": "yanyan", "知乎": "yanyan", "yanyan": "yanyan",
+}
+
+
+def apply_platform(name):
+    """按平台名改写 THRESHOLDS，返回 (规范 key, 实际改动的键值)。
+
+    只在进程内改，不写回文件——平台是「这一本书的设定」，不是新基线。
+    """
+    if not name:
+        return None, {}
+    key = PLATFORM_ALIASES.get(str(name).strip().lower(), str(name).strip().lower())
+    preset = PLATFORM_PRESETS.get(key)
+    if not preset:
+        raise SystemExit(
+            "未知平台「%s」。可选：%s（也认中文名：番茄/起点/七猫/盐言）"
+            % (name, " / ".join(PLATFORM_PRESETS))
+        )
+    THRESHOLDS.update(preset)
+    return key, preset
+
 
 # 情绪温度五档（references/genre-radar.md 第八节）。章内出现这些标记即认定该章主档位。
 TEMPERATURE_MARKS = {
@@ -326,18 +393,38 @@ def check_wordcount(body, first_chapter, errors, warns, stats):
 
 
 def check_paragraph_length(lines, errors, warns, stats):
-    """| 段落长度 | ≤ 90 字 | [blocking] —— 超限须断段，不是可裁量项。"""
-    over = []
+    """| 段落长度 | ≤ 90 字 [blocking]；每章允许 1 段放到 120 字 [豁免] |
+
+    分两档判，不再有第三套口径：
+      > 120 字           —— 一律 blocking（手机屏 5 行以上，必须断）
+      91–120 字           —— 每章只豁免 1 段；第 2 段起 blocking
+      90 字以内            —— 不动
+    豁免不是「允许」，是「长段是节奏工具，一章用一次就够」——全章都是长段照样判死。
+    """
+    hard, soft = [], []
     for ln, raw in lines:
         n = visible_len(raw)
-        if n > THRESHOLDS["paragraph_max"]:
-            over.append((ln, n, raw.strip()[:28]))
+        if n > THRESHOLDS["paragraph_exempt_max"]:
+            hard.append((ln, n, raw.strip()[:28]))
+        elif n > THRESHOLDS["paragraph_max"]:
+            soft.append((ln, n, raw.strip()[:28]))
+    quota = THRESHOLDS["paragraph_exempt_quota"]
+    over = hard + soft[quota:]
     stats["超长段落数"] = len(over)
+    stats["长段豁免"] = min(len(soft), quota)
+    if soft and len(soft) <= quota:
+        warns.append(
+            "长段用掉豁免：%d 段在 %d–%d 字之间（每章上限 %d 段，属正常节奏波动，无需改）。"
+            % (len(soft), THRESHOLDS["paragraph_max"] + 1,
+               THRESHOLDS["paragraph_exempt_max"], quota)
+        )
     if over:
         errors.append(
-            "段落长度超限：%d 段超过 %d 字（手机屏只放 3–4 行）。"
+            "段落长度超限：%d 段越界（常态上限 %d 字，每章只有 %d 段可放到 %d 字）。"
             "最长第 %d 行 %d 字。按动作/视线断段。"
-            % (len(over), THRESHOLDS["paragraph_max"], over[0][0], max(n for _, n, _ in over))
+            % (len(over), THRESHOLDS["paragraph_max"], quota,
+               THRESHOLDS["paragraph_exempt_max"], over[0][0],
+               max(n for _, n, _ in over))
         )
 
 
@@ -430,14 +517,16 @@ def check_beats(body, lines, errors, warns, stats, meta=None):
     判定：数爽点信号词 + meta 声明，总数 < 2 → advisory。
     meta 缺失时仅用信号词（不因缺 meta 而报错，只是判据更弱）。
     """
+    # v2.8：声明数与信号数分开数，不再混算。
+    # 旧版把 meta.returns（三重回报条数，3 条起）算进「爽点声明」，于是
+    # 一张声明了回报的 meta 能凭空凑够 ≥2 的爽点门槛；输出「信号 2 处（声明 4）」
+    # 也把两种单位并列在一个括号里，读的人无从判断到底够不够。
     marked = len(re.findall(r"<!--\s*爽点", body))
     if meta and meta.get("satisfaction"):
         marked += 1
-    if meta and meta.get("returns"):
-        marked += len([r for r in (meta.get("returns") or []) if r])
     sig_hits = sum(1 for _, raw in lines if any(sig in strip_quoted_spans(raw) for sig in BEAT_SIGNALS))
-    total = sum(visible_len(raw) for _, raw in lines)
-    stats["爽点信号"] = "%d 处（声明 %d）" % (sig_hits, marked)
+    stats["爽点信号"] = "%d 处" % sig_hits
+    stats["爽点声明"] = ("%d 处" % marked) if marked else "无"
     need = THRESHOLDS["beats_min_per_chapter"]
     if sig_hits + marked < need:
         warns.append(
@@ -445,6 +534,13 @@ def check_beats(body, lines, errors, warns, stats, meta=None):
             "爽点靠阅读感，机器只能数信号——若写得更含蓄，可在 meta/第N章.json 的 "
             "satisfaction 字段声明本章主爽点。"
             % (sig_hits, marked, need)
+        )
+    elif marked and sig_hits < need:
+        # 声明把数量补够了，但正文信号不足：这正是「在 meta 里写爽点」代替「把爽点写出来」的形态。
+        warns.append(
+            "声明与实测不符：meta 声明 %d 处，正文只数到 %d 处爽点信号（建议 ≥%d）。"
+            "以正文为准——回读一遍，确认声明的爽点真的演成了场景，不是只在 sidecar 里写了一句。"
+            % (marked, sig_hits, need)
         )
 
 
@@ -806,10 +902,18 @@ def main():
     ap.add_argument("--prev", help="上一章状态 JSON（钩子轮换/温度连档比对）")
     ap.add_argument("--chapter", type=int)
     ap.add_argument("--meta", help="显式指定 meta/第N章.json（默认从正文路径自动定位）")
+    ap.add_argument("--platform", help="平台预设：fanqie（默认）/ qidian / qimao / yanyan，也认中文名")
     ap.add_argument("--json", action="store_true")
     args = ap.parse_args()
 
+    plat_key, plat_preset = apply_platform(args.platform)
+
     result = run(args.file, args.first_chapter, args.prev, args.chapter, meta_path=args.meta)
+    if plat_key:
+        result["stats"]["平台口径"] = "%s（字数 %d–%d，首章 %d–%d）" % (
+            plat_key, plat_preset["words_min"], plat_preset["words_max"],
+            plat_preset["first_chapter_words_min"], plat_preset["first_chapter_words_max"],
+        )
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))
     else:
