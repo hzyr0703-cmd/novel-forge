@@ -83,6 +83,9 @@ INVALID_FILE_CHARS = re.compile(r"[<>:\"/\\|?*\x00-\x1f]")
 FORESHADOW_ID = re.compile(r"^F\d{3,}$")
 SNAPSHOT_TEXT_FIELDS = ("identity", "location", "goal", "state")
 SNAPSHOT_LIST_FIELDS = ("abilities_resources", "relationships", "knowledge", "open_threads")
+# 每个角色最多记 8 个别名。上限不是洁癖：别名是喂给 BM25 的查询扩展源，
+# 一个角色挂 30 个称呼时，任何查询都会命中他，召回就退化成"永远返回主角卡"。
+ALIAS_MAX_ITEMS = 8
 EVENT_ID = re.compile(r"^E\d{3,}$")
 WINDOWS_RESERVED_NAMES = {
     "CON",
@@ -382,6 +385,10 @@ def normalize_snapshot(value: object, label: str) -> dict[str, Any]:
             # 死亡/复活结构化字段（story-skills died-in/revived-in 的本地化）。
             # 可选；不写则维持原行为。写入后由 check-factconflicts.py 做一致性判定。
             "died_in", "revived_in",
+            # 别名（v2.9）：同一角色在正文里被叫过的其它名字——外号/化名/尊称/错叫。
+            # 召回是字面 BM25，"阿灼""灼哥""那个瞎子"不加进来，第 300 章就召不回第 3 章。
+            # 只影响检索与派生视图，不参与任何一致性判定。
+            "aliases",
         },
         label,
     )
@@ -397,6 +404,14 @@ def normalize_snapshot(value: object, label: str) -> dict[str, Any]:
         "knowledge": clean_string_list(snapshot.get("knowledge", []), f"{label}.knowledge"),
         "open_threads": clean_string_list(snapshot.get("open_threads", []), f"{label}.open_threads"),
     }
+    # 别名：可选、有序、去重。不写就不落键——旧台账的结构与体积保持原样，
+    # 不会因为升级 schema 就在每张卡上多出一个空数组。
+    aliases = clean_string_list(
+        snapshot.get("aliases") or [], f"{label}.aliases", maximum=ALIAS_MAX_ITEMS, item_max_bytes=24
+    )
+    if aliases:
+        require(len(set(aliases)) == len(aliases), f"{label}.aliases 有重复项：{aliases}")
+        normalized["aliases"] = aliases
     # 死亡/复活章号：可选 int。约束在写入时就拦住结构性错误——
     # 这是 check-factconflicts.py 判定的数据前提：
     #   1. 复活必须晚于死亡（revived >= died）
@@ -438,10 +453,18 @@ def render_snapshot(name: str, snapshot: dict[str, Any], through_chapter: int, r
         f"- 状态修订：{revision}",
         f"- 截至章节：第{through_chapter}章",
         f"- 身份：{snapshot['identity']}",
-        f"- 位置：{snapshot['location']}",
-        f"- 当前目标：{snapshot['goal']}",
-        f"- 身心状态：{snapshot['state']}",
     ]
+    # 别名行放最前：写章前扫一眼这张卡，先要知道"这家伙还有哪些叫法"，
+    # 否则正文里换了个称呼，下一次召回就断了线（v2.9）。
+    if snapshot.get("aliases"):
+        lines.append(f"- 别名：{'、'.join(snapshot['aliases'])}")
+    lines.extend(
+        [
+            f"- 位置：{snapshot['location']}",
+            f"- 当前目标：{snapshot['goal']}",
+            f"- 身心状态：{snapshot['state']}",
+        ]
+    )
     # 死亡/复活信息进派生视图，让写章前捞前文时一眼看到「这人已经死了」
     if snapshot.get("died_in") is not None:
         lines.append(f"- 死亡：第{snapshot['died_in']}章")

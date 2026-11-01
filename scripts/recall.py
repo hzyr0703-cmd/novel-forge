@@ -151,6 +151,102 @@ def _load_state(project: Path) -> dict[str, Any]:
     return {}
 
 
+# ---------------------------------------------------------------- 别名层
+#
+# 召回是单字 + bigram 的 BM25，没有语义。同一个东西在 400 章里被叫成
+# 「碑 / 登记册 / 名册 / 那一页」时，查「碑」一个共同 bigram 都命中不了，
+# 那条前文就永远召不回来——这是 80 万字规模最先崩的地方，不是速度。
+# 别名表把「叫法」摊平成同一词族，查询时整族扩展：查「碑」也去捞「名册」。
+
+ALIAS_FILENAME = "aliases.json"
+ALIAS_MAX_GROUPS = 300
+ALIAS_MAX_MEMBERS = 12
+
+
+def _normalize_alias_book(payload: object) -> list[list[str]]:
+    """接受两种写法：`{"正名": ["别称", ...]}` 或 `[["正名", "别称", ...], ...]`。"""
+    groups: list[list[str]] = []
+    if isinstance(payload, dict):
+        for canonical, aliases in payload.items():
+            if isinstance(aliases, str):
+                aliases = [aliases]
+            if not isinstance(aliases, (list, tuple)):
+                continue
+            groups.append([str(canonical), *[str(a) for a in aliases]])
+    elif isinstance(payload, list):
+        for row in payload:
+            if isinstance(row, (list, tuple)):
+                groups.append([str(x) for x in row])
+            elif isinstance(row, str):
+                groups.append([row])
+    return groups
+
+
+def _clean_group(members: list[str]) -> list[str]:
+    out: list[str] = []
+    for item in members:
+        name = str(item).strip()
+        if name and name not in out:
+            out.append(name)
+    return out[:ALIAS_MAX_MEMBERS]
+
+
+def alias_groups(project: Path, state: dict[str, Any] | None = None) -> list[list[str]]:
+    """同一事物的多种叫法。两个来源：
+
+    1. 台账 `characters[].aliases`（人物：外号 / 化名 / 尊称）
+    2. `追踪/aliases.json`（物件、设定、组织：碑 / 登记册 / 那本册子）
+
+    只读不写，不落第二份状态；表改了立刻生效，不用重建索引。
+    """
+    groups: list[list[str]] = []
+    seen: set[frozenset[str]] = set()
+
+    def push(members: list[str]) -> None:
+        cleaned = _clean_group(members)
+        if len(cleaned) < 2:
+            return
+        key = frozenset(cleaned)
+        if key in seen:
+            return
+        seen.add(key)
+        groups.append(cleaned)
+
+    if state is None:
+        state = _load_state(project)
+    chars = state.get("characters") if isinstance(state, dict) else None
+    if isinstance(chars, dict):
+        for name, snap in chars.items():
+            if isinstance(snap, dict) and snap.get("aliases"):
+                push([str(name), *[str(a) for a in snap["aliases"]]])
+
+    for cand in (project / "追踪" / ALIAS_FILENAME, project / ALIAS_FILENAME):
+        if not cand.is_file():
+            continue
+        try:
+            payload = json.loads(cand.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            # 别名表坏了不该让整次检索失败：它只是召回增强，不是必需状态。
+            print(f"[recall] 别名表解析失败，本次跳过：{cand}（{exc}）", file=sys.stderr)
+            continue
+        for members in _normalize_alias_book(payload):
+            push(members)
+    return groups[:ALIAS_MAX_GROUPS]
+
+
+def expand_query(query: str, groups: list[list[str]]) -> tuple[str, list[list[str]]]:
+    """查询命中词族任一成员，就把整族补进查询。返回 (扩展后查询, 命中的族)。"""
+    extra: list[str] = []
+    hits: list[list[str]] = []
+    for members in groups:
+        if any(m in query for m in members):
+            hits.append(members)
+            extra.extend(m for m in members if m not in query)
+    if not extra:
+        return query, hits
+    return query + " " + " ".join(dict.fromkeys(extra)), hits
+
+
 def _chapter_files(project: Path) -> list[Path]:
     """扫描正文目录。支持 第1章.md / 第0001章-标题.md / 001_标题.md 等常见命名。"""
     out: list[Path] = []
@@ -670,10 +766,19 @@ def _search(
     top: int,
     kinds: list[str] | None,
     project: Path | None = None,
+    aliases: list[list[str]] | None = None,
 ) -> list[dict]:
+    # 别名扩展只作用于粗排打分，不改展示的 query。
+    q_text = query
+    if aliases:
+        expanded, _ = expand_query(query, aliases)
+        # 别名里若含「第N章」这类字面，扩展后会被下面的章节锁定逻辑当成显式引用，
+        # 那种情况下放弃本次扩展——宁可少召回，不可误置顶。
+        if not _chapter_refs(expanded)[0] - _chapter_refs(query)[0]:
+            q_text = expanded
     pool = [
         (c, s)
-        for c, s in zip(index["chunks"], _bm25(index, query))
+        for c, s in zip(index["chunks"], _bm25(index, q_text))
         if not kinds or c["kind"] in kinds
     ]
 
@@ -769,6 +874,10 @@ def main(argv: list[str] | None = None) -> int:
     p_q.add_argument("text", help="查询串，如'老王 那封信'")
     p_q.add_argument("--top", type=int, default=6)
     p_q.add_argument("--kind", action="append", help="过滤类型，可重复：character/foreshadow/timeline/chapter/constraint/risk/commitment/position/recent")
+    p_q.add_argument("--no-alias", action="store_true",
+                     help="关闭别名扩展（排查「为什么召回了这条」时用）")
+
+    sub.add_parser("aliases", help="列出当前生效的别名族")
 
     sub.add_parser("status", help="索引状态")
 
@@ -791,14 +900,23 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == "query":
         index = _load_index(project)
-        hits = _search(index, args.text, args.top, args.kind, project)
+        groups = [] if args.no_alias else alias_groups(project)
+        hits = _search(index, args.text, args.top, args.kind, project, groups)
         if not hits:
             print("[recall] 无命中。检查 query，或重建索引后重试。")
             return 1
         layers = [index["mode"]]
         if index.get("rerank_model") and _rerank_client(project):
             layers.append(f"rerank:{index['rerank_model']}")
+        if groups:
+            layers.append("alias")
         print(f"[recall] 检索链路：{' → '.join(layers)} · 命中 {len(hits)} 条\n")
+        # 把「这次为什么能捞到」摊开：别名扩展是隐式的，不显示就会让人误以为
+        # BM25 突然懂语义了，下次别名表写错也发现不了。
+        if groups:
+            _, used = expand_query(args.text, groups)
+            if used:
+                print("[recall] 别名扩展：" + " ／ ".join("＝".join(g) for g in used) + "\n")
         for h in hits:
             print(f"[{h['rank']}] {h['title']}  (score={h['score']})")
             print(f"    {h['excerpt']}...")
@@ -808,6 +926,18 @@ def main(argv: list[str] | None = None) -> int:
             if extra:
                 print(f"    {extra}")
             print()
+        return 0
+
+    if args.cmd == "aliases":
+        groups = alias_groups(project)
+        if not groups:
+            print("[recall] 没有别名族。\n"
+                  "         写进 追踪/aliases.json，例如：{\"碑\": [\"登记册\", \"名册\"]}\n"
+                  "         或台账 characters[].aliases（人物外号 / 化名）。")
+            return 1
+        print(f"[recall] 生效别名族：{len(groups)} 组\n")
+        for members in groups:
+            print("  " + "＝".join(members))
         return 0
 
     if args.cmd == "status":

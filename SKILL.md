@@ -1,6 +1,6 @@
 ---
 name: novel-forge
-version: 2.8.1
+version: 2.9
 description: "中文网文长篇写作引擎：先算后写（15维选题打分→卷纲细纲→分层正文初稿/定稿/导出→去AI味门禁），含对标书拆解、旧书冷启动导入、长篇连续性台账（伏笔/时间线/人设）、改稿换位盲评与细纲兑现核对、出版与IP评估。何时用：用户要写或改中文网络小说；给题材想法、书名、草稿章节、后台数据，问能不能爆、为什么扑街、怎么救盘；要把旧稿接进追踪体系；要拆对标书建剧情模块库；要判断两版改稿哪版更强；要核验细纲情节点有没有落地。常见说法：写小说、写网文、开书、写文、码字、构思题材、写大纲、出卷纲、写细纲、卡文了想不出接下来怎么写、伏笔忘了怎么回收、人物OOC、这章太AI了、去AI味、过审、黄金三章怎么写、开篇怎么写、取书名、写简介、配标签、书测怎么选、数据不好怎么救、正文导出、导入我的旧书、拆这本书、建对标库、这两版哪版好、改前改后对比、细纲写的东西正文有没有写到。何时不用：非虚构写作（论文/公众号/商业报告）、单句润色、单点创作请求（角色对话片段、剧情反转点子、世界观设定问答直接回答即可）、非中文语种。平台默认番茄小说，起点/晋江/七猫/知乎盐言需调整包装与节奏口径。"  
 agent_created: true
 ---
@@ -494,6 +494,8 @@ blocking——违背它们不会被门禁拦，但正文会「对而乏味」，
 2. 读本章细纲 + 卷纲 + 上下文卡（含双时间线防剧透 + 素材库）+ 文风基线
 3. debt.py due                ← 本章该偿哪几笔债（含紧迫度与处理建议）
 4. recall.py query "<本章要素>" ← 按本章场景检索前文事实，捞回该想起的设定与伏笔
+                                （命中 追踪/aliases.json 或角色 aliases 时自动扩整族，
+                                  查「碑」也能捞到前文写「登记册」的段落）
 5. 按细纲写正文（初稿）→ 正文/draft/第N章.md，首行标 [DRAFT]
    遵守 blocking 四项 + 尽量满足 advisory；主动埋闲笔/非功能对话/句长波动
 5.5 自查对话层与分布盲区：抽一遍本章对话，确认至少一句「删了不影响剧情」的
@@ -768,7 +770,7 @@ blocking——违背它们不会被门禁拦，但正文会「对而乏味」，
 | `import_manuscript.py`         | **存量书冷启动导入**（v2.2）：`prepare` 盘点（章号/断号/字数）+ 近 N 章本书文风基线（`<书目录>/文风基线.json`，dist 自动消费）+ 回填清单 + init 预填单；`verify` 拦 TODO 残留/章号错位/空快照/悬置线缺失。只回填近 20 章，更早事实由 recall.py 检索承接 |
 | `analyze_book.py`              | **对标书拆文引擎**（v2.2）：文风基线.json（同 human-baseline schema，check-distribution `--baseline` 直接消费）+ 文风.md（分布/标点指纹/高频用词/章末收尾类型）+ 拆文报告.md（统计摘要 + 语义层七步待办）。纯统计不猜语义 |
 | `wordcount_core.py`            | 字数口径（依赖项）                                                                                                                        |
-| `recall.py`                    | **派生检索层**（BM25/混合），写章前捞回前文事实。索引可随时重建，不持状态                                                                                        |
+| `recall.py`                    | **派生检索层**（BM25/混合），写章前捞回前文事实。索引可随时重建，不持状态。**v2.9 带别名层**：`characters[].aliases`（人物，≤8）与 `追踪/aliases.json`（物件/设定）在**查询侧**扩词族，查「碑」能捞回写「登记册」的段落；`aliases` 子命令看生效词族，`--no-alias` 排查误召回；表改了不用重建索引 |
 | `debt.py`                      | **伏笔债务压力计算**，纯函数派生，不落第二份状态                                                                                                       |
 | `ledger.py`                    | **advisory 挂账台账**：故意违背 advisory 时登记「违背章 + 规则 + 承诺偿还章」，之后每次 gate 显示未还的账，超期标 ⚠ 逾期（仍 advisory、不阻断）。`add/list/fulfill/overdue/check` 五个子命令，台账在 `追踪/advisory-ledger.json`，与追踪台账分开（承诺≠事实）          |
 | `bench_bm25.py`                | **BM25 召回基准**，量化"要不要开向量层"。跑之前先看它给出的实测缺口，别凭感觉配 key                                                                                |
@@ -777,6 +779,7 @@ blocking——违背它们不会被门禁拦，但正文会「对而乏味」，
 | `test_llm_review_pairing.py`   | **盲评/核对逻辑离线测试**（45 用例，不联网不读 key）：换位投票一致性、tally 统计、细纲路径推导、章节定位、JSON 提取鲁棒性（思维链/围栏/嵌套/未闭合思维链/顶层数组）、thinking payload、空 content 诊断、provider 预设与 env 优先级。改 `llm_review.py` 后必跑                                  |
 | `test_llm_review_e2e.py`       | **盲评/核对端到端测试**（10 用例）：起本地假 OpenAI 兼容端点走真实 HTTP，验两轮换位真的换了内容、--model 覆盖、--provider 接管端点、端点不可达时不阻断（只连 127.0.0.1，用假 key）                        |
 | `check-doc-consistency.py`     | **文档 / 代码口径对账**（v2.8）：规则数、段长阈值、字数带、平台预设、版本号、deslop 是否覆盖全部规则——全部从代码读事实再回查文档，不一致退非 0。防的是「文档改一处、脚本改另一处」的漂移 |
+| `test_recall_alias.py`         | **别名层回归**（v2.9，13 用例）：查「碑」召回写「登记册」的段落、角色外号召回角色卡、关掉别名层必须退回零命中（对照）、别名表损坏不拖垮检索、别名含「第N章」字面时不误锁章节 |
 | `test_ledger.py`               | **挂账台账 + 实际回收时序回归**（19 用例）：add/fulfill/overdue/check 全链路、payback≤违背章拒绝、损坏台账退出码 2、gate 集成显示挂账且不改退出码、`promise-payoff-actual-before-plant`（已回收条目 updated_chapter 早于埋设章被报、同章埋收不误报）                    |
 
 修改任何脚本后跑 `python forge.py selftest`（改动前先看它是否全绿）。  
@@ -785,6 +788,8 @@ blocking——违背它们不会被门禁拦，但正文会「对而乏味」，
 改了 `llm_review.py` 额外跑  
 `python scripts/test_llm_review_pairing.py`（离线逻辑）+ `python scripts/test_llm_review_e2e.py`（真实 HTTP 路径）。  
 改了 `ledger.py` 或 factconflicts 伏笔规则额外跑 `python scripts/test_ledger.py`。  
+改了 `recall.py` / 台账 `aliases` 字段 / `追踪/aliases.json` 解析额外跑  
+`python scripts/test_recall_alias.py`（核心是那个对照：`--no-alias` 必须退回零命中，否则测的不是别名）。  
 **改完文档（或改完阈值 / 规则）跑 `python scripts/check-doc-consistency.py`**——它把「文档里的数字」
 与「代码里的事实」逐项对账（规则数 / 段长 / 字数带 / 平台预设 / 版本号 / deslop 是否覆盖全部规则），
 不一致就退非 0。这个脚本存在的原因就是根因 2：数字散落在十几个文件里，靠人记必然漂移。  
