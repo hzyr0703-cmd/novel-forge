@@ -55,7 +55,7 @@
 
 | 本文件 | 对应现有组件 |
 | --- | --- |
-| 通道"审美"=节奏变化 | check-distribution（sd≥13/长句≥10%） |
+| 通道"审美"=节奏变化 | check-distribution（sd≥13 / 长句存在性，不设占比配额） |
 | 模式4 情绪贴标签/通用手势 | check-ai-patterns 微动作tic + 中文原则库"动作链" |
 | 模式7 情绪评论/模式9 升调 | deslop not-is-comparison + 硬禁词 |
 | 模式2/6 声音抹平 | check-cross-diversity 对话风格多样性 |

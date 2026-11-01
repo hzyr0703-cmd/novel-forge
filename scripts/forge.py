@@ -1444,6 +1444,61 @@ def _run_selftest_cases(tmp, cases):
     cases.append(("用例14d --stage all 真查 draft+final（final 的 blocking 被拦住）", ok_all,
                   (p_all.returncode, out_all.strip().splitlines()[-1][:40] if out_all.strip() else "")))
 
+    # ---- 用例 15（v3.0，lieflat 逆向批）：破折号条件 blocking + 比喻逐段判 + --diff
+    # 15a 破折号：引号内恒 advisory；引号外 + 全章 ≥2/千字 才 blocking；低密度全降级。
+    # 旧版一律 blocking，中文表示「话说打断」只有破折号一种写法，改了读者分不清谁打断谁。
+    dash_dir = os.path.join(tmp, "dash")
+    os.makedirs(dash_dir, exist_ok=True)
+    dq = os.path.join(dash_dir, "quoted.md")
+    with open(dq, "w", encoding="utf-8") as f:
+        f.write("“你——”\n\n他没说完。\n\n“我不知道。”老陈说，“就算知道——”\n")
+    dn = os.path.join(dash_dir, "narr.md")
+    with open(dn, "w", encoding="utf-8") as f:
+        # 约 800 字叙述 + 4 处引号外破折号 = 5/千字，过警戒线
+        body = "他沿着河堤往下走，脚下碎石咯吱作响。" * 20
+        body += "\n\n他把钥匙放在桌上——抽屉里那枚铜片还在。\n"
+        body += "\n\n门开着——风从里面出来。\n\n灯灭了——他没去开。\n\n雨停了——屋檐还在滴。\n"
+        body += "\n\n" + "远处有人在收网，绳结打在船板上。" * 20
+        f.write(body)
+    dlow = os.path.join(dash_dir, "low.md")
+    with open(dlow, "w", encoding="utf-8") as f:
+        f.write(("他推开门，把伞收好。屋里没开灯。" * 30)
+                + "\n\n他把钥匙放在桌上——抽屉里那枚铜片还在。\n"
+                + "\n\n" + ("雨小了。\n\n" * 40))
+    rq = run_lint([dq])["blocking"]
+    rn = run_lint([dn])["blocking"]
+    rl = run_lint([dlow])["blocking"]
+    cases.append(("用例15a 破折号条件判：引号内 0、引号外高密度拦、低密度放",
+                  rq == 0 and rn >= 1 and rl == 0, "quoted=%s narr=%s low=%s" % (rq, rn, rl)))
+
+    # 15b 比喻逐段判：同段 3 个报，分散 3 段不报（旧版按全章密度，两条都报）
+    mbad = os.path.join(tmp, "meta_bad.md")
+    with open(mbad, "w", encoding="utf-8") as f:
+        f.write("她的眼睛像灯，声音像风，手指像铁。\n\n他站着没动。\n")
+    mok = os.path.join(tmp, "meta_ok.md")
+    with open(mok, "w", encoding="utf-8") as f:
+        f.write("她的眼睛像灯。\n\n他站着没动。\n\n声音像风一样进来。\n\n他没回头。\n\n手指像铁一样凉。\n")
+    cases.append(("用例15b 比喻逐段判：同段 3 个报、分散 3 段不报",
+                  run_lint([mbad])["advisory"] >= 1 and run_lint([mok])["advisory"] == 0,
+                  "same_para=%s spread=%s" % (run_lint([mbad])["advisory"], run_lint([mok])["advisory"])))
+
+    # 15c --diff：改前 4 → 改后 1，且能抓到「某类变多」
+    before_json = os.path.join(dash_dir, "before.json")
+    p_b = subprocess.run(["node", os.path.join(CWD, "check-ai-patterns.js"), "--json", dn],
+                         capture_output=True, text=True, encoding="utf-8")
+    with open(before_json, "w", encoding="utf-8") as f:
+        f.write(p_b.stdout or "{}")
+    empty_file = os.path.join(dash_dir, "clean.md")
+    with open(empty_file, "w", encoding="utf-8") as f:
+        f.write("他推开门。\n\n雨小了。\n")
+    p_diff = subprocess.run(["node", os.path.join(CWD, "check-ai-patterns.js"),
+                             "--diff=" + before_json, empty_file],
+                            capture_output=True, text=True, encoding="utf-8")
+    out_diff = (p_diff.stdout or "")
+    cases.append(("用例15c --diff 输出前后对比（含 Δ 列与合计）",
+                  "前后对比" in out_diff and "em-dash" in out_diff and "-" in out_diff,
+                  out_diff.strip().splitlines()[-1][:44] if out_diff.strip() else ""))
+
 
 # ---------------------------------------------------------------- CLI
 

@@ -5,8 +5,8 @@ const fs = require('fs');
 const { loadStyleWhitelist, maskStyleText } = require('./style-whitelist.js');
 const path = require('path');
 
-const USAGE = `Usage: node check-ai-patterns.js [--check] [--json] [--fail-on=blocking|all] <file...>
-       node check-ai-patterns.js --list-review-classes
+const USAGE = `Usage: node check-ai-patterns.js [--check] [--json] [--fail-on=blocking|all] [--diff=before.json] <file...>
+       node check-ai-patterns.js --list-review-classes | --list-categories
 
 Detect high-risk AI-flavor prose patterns that need human rewrite:
   - negative setup followed by positive flip in the same sentence
@@ -37,9 +37,13 @@ Detect high-risk AI-flavor prose patterns that need human rewrite:
   - 极端词过量 (叙述里 非常/极其/无比/十分/特别 等 ≥4 处，程度应靠具体画面给)
 
 Book-local .deslop-whitelist literal spans are excluded from style scanning (no regex or ancestor inheritance).
-Each finding carries severity: blocking by default for generation/deslop cleanup (not-is-comparison / em-dash / voice-contrast / negation-parade / reverse-not-is / trailer-ending / trailer-summary). This is a local style/readability gate, not an AIGC detector score; functional human text can be marked for review instead of hard-edited for a detector.
+Each finding carries severity: blocking by default for generation/deslop cleanup (not-is-comparison / voice-contrast / negation-parade / reverse-not-is / trailer-ending / trailer-summary / hard-banned-word). This is a local style/readability gate, not an AIGC detector score; functional human text can be marked for review instead of hard-edited for a detector.
+em-dash is conditional: blocking only when the dash is OUTSIDE quotes AND the chapter density is >= 2/1000 chars; inside quotes (interrupted speech) it is always advisory.
+Each finding also carries category: ai-tone（真 AI 腔，该改）/ cliche（网文水词，可删可留）/ literary（文学手法，多数保留）/ readability（节奏可读性，看语境）。
 或 advisory (period-stutter / micro-action-tic / negation-pair-tic / stock-reaction-tic / action-list-tic / abstract-summary-tic / cliche-density-tic / metaphor-density-tic / reasoning-chain-tic / system-notice-formality-tic / overcompressed-prose-tic / low-connective-density-tic / quote-emphasis-tic / formulaic-parallelism / weak-verb-tic / emotion-label-tic / crowd-sync-tic / filter-verb-tic / decorative-symbol / intensifier-abuse，是提示，justified 的长推理/氛围段可保留)。
 --fail-on=blocking 只在出现 blocking finding 时退出 1；默认 --fail-on=all 有任何 finding 即退出 1。
+--diff=before.json 把本次命中与上一次 --json 输出按 type 对比，看改完是「修好了」还是「改过头了」
+（某类命中变多 = 新毛病；blocking 归零但总数变多 = 转移）。
 Each finding also carries review: mechanical（表面形态确定、就地改写即可）或 semantic（可能承担叙事功能，需读上下文判断是否保留）；blocking 一律 mechanical。--list-review-classes 输出完整分类表（JSON）。
 HTML comments (<!-- ... -->, e.g. the 去味:跳过 exemption marker) are metadata, not prose, and are never scanned.
 
@@ -52,6 +56,10 @@ const SOFT_SEPARATORS = new Set(['，', ',', '、', '；', ';', '：', ':']);
 const HARD_SEPARATORS = new Set(['。', '.', '！', '!', '？', '?']);
 const MAX_NEGATIVE_SPAN = 80;
 const MAX_POSITIVE_SPAN = 80;
+
+// 破折号 blocking 的密度门槛（每千字）。低于它一律 advisory：单个破折号是正常标点。
+// 放在文件顶部而不是 scanProsePatterns 旁边——模块加载期不会用到，但常量集中一处更好核对。
+const DASH_BLOCKING_PER_KILO = 2;
 
 // 碎句号：连续 STUTTER_MIN_RUN 个「叙述」短句（每句可见字数 ≤ STUTTER_MAX_SENTENCE）无呼吸。
 // 只数叙述句，跳过对话/弹幕/系统播报（成片短句是这些体裁的正常形态，不算碎句号）。
@@ -259,7 +267,11 @@ const HARD_BANNED_PATTERNS = [
 // 套词密度：单个「仿佛/一丝」可能是正常中文，高密度聚集才会形成模板腔。
 // 词表只收本 repo banned-words 中已明确标为高危的形态，避免把普通功能词一网打尽。
 const CLICHE_PATTERNS = [
-  /仿佛|犹如|宛若|如同/g,
+  // 第一组原本是 /仿佛|犹如|宛若|如同/（纯比喻标记）——v3.0 删除：
+  // ① 这批词已被 METAPHOR_MARKER_PATTERN 数过一遍，同词两处计数；
+  // ② 更关键的是方向反了：lieflat 配对复测人类比喻标记 0.38/千字 vs AI 0.16，
+  //    人类多 2.4 倍。把它们放进「AI 套词黑名单」等于惩罚爱用比喻的作者。
+  // 详见 references/rejected-signals.md X-7。
   /一丝|一抹|些许|几分|隐约/g,
   /深吸一口气|缓缓|微微|轻轻|淡淡/g,
   /眼中闪过|嘴角勾起|眸光微微一闪|指节泛白|目光锐利|眼神锐利/g,
@@ -272,19 +284,25 @@ const CLICHE_PATTERNS = [
 const CLICHE_DENSITY_MIN_HITS = 8;
 const CLICHE_DENSITY_PER_KILO = 12;
 
-// 比喻密度：单个生活化比喻可服务画面；“像/好像/仿佛/如同”成片复现时，
-// 容易变成 AI 式修辞堆叠。只做 advisory，修法是删到必要数量并回到具体画面，
-// 不是把“像”换成另一组比喻词。
+// 比喻密度（v3.0 改判据）：不再按「全章每千字密度」判，改「同一段里 ≥3 个比喻标记」。
+// 两个理由：① 方向反了——lieflat 配对复测人类 0.38/千字 vs AI 0.16，人类多 2.4 倍，
+// 按全章密度判等于惩罚爱用比喻的作者；② 真正像 AI 的不是「一章里有几个比喻」，
+// 是「一段里连着比三下」——比喻成片堆叠才是修辞模板。分段落判也顺带给出可定位的行号。
+// 只做 advisory，修法是删到必要数量并回到具体画面，不是把“像”换成另一组比喻词。
 const METAPHOR_MARKER_PATTERN = /好像|像是|仿佛|宛如|如同|犹如|(?<![不头图画影录摄肖])像(?![头像素])/g;
 const METAPHOR_LIKE_PHRASE_PATTERN = /(?:死|水|冰|火|潮水|石头|木头|机器|纸|铁|鬼|死人|刀|针|网|墙)一样/g;
-const METAPHOR_DENSITY_MIN_HITS = 7;
-const METAPHOR_DENSITY_PER_KILO = 3;
+// 一段里允许多少个比喻标记：2 个以内正常（并列递进也常见），第 3 个起才算成片。
+const METAPHOR_PER_PARAGRAPH_MAX = 2;
+const METAPHOR_MAX_FINDINGS = 5;
 
-// 解释链密度：常见“他知道/他明白/这意味着/必须需要”
-// 连续替读者推理，读感像报告。单个判断词可服务推理；高密度聚集才提示回到角色当下证据。
+// 解释链密度：常见“他知道/他明白/必须需要”连续替读者推理，读感像报告。
+// 单个判断词可服务推理；高密度聚集才提示回到角色当下证据。
+// connector 组只留真 AI 腔的连接词。v3.0 移出「这意味着/也就是说/换句话说」：
+// lieflat 配对复测三项全反（人类 0.027 vs AI 0.016/千字），小说里「也就是说」
+// 多半是角色口语转述。见 references/rejected-signals.md X-2。
 const REASONING_CHAIN_PATTERNS = [
   { key: 'mental', core: true, pattern: /(?<![不没未无])(?:他|她|我)?(?:知道|明白|意识到|清楚|判断|确认|分析)/g },
-  { key: 'connector', core: true, pattern: /这意味着|也就是说|换句话说|真正的问题(?:在于)?|问题在于|关键在于|在这种情况下|按照这个逻辑|只有这样|想到这里/g },
+  { key: 'connector', core: true, pattern: /真正的问题(?:在于)?|问题在于|关键在于|在这种情况下|按照这个逻辑|只有这样|想到这里/g },
   { key: 'modal', core: true, pattern: /(?:(?<!不)(?:必须|需要|应该|只要|就会|可能|可以|能够|无法)|不能)[^。！？!?\n]{0,16}(?:判断|确认|承担|维持|稳住|控制|扩大|失控|带来|造成|理解|默认|回家|进门|核对|筛选|减少|建立|风险|结果|秩序|责任)/g },
   { key: 'abstract', core: false, pattern: /(?:任务|条件|风险|来源|逻辑|局面|结果|责任|秩序|规则|信息不足|决策能力)/g },
 ];
@@ -440,7 +458,7 @@ const QUOTE_EMPHASIS_SPEECH_VERB_PATTERN = /[说道问喊答念叫回吼骂写�
 //   reverse-not-is               mechanical  固定反序对比模板「是A，不是B」，blocking
 //   trailer-ending               mechanical  文末窗口固定预告短语，blocking
 //   trailer-summary              mechanical  文末窗口固定总结短语，blocking
-//   em-dash                      mechanical  标点，blocking
+//   em-dash                      mechanical  标点；条件 blocking（引号外 + 全章 ≥2/千字）
 //   period-stutter               mechanical  连续短句计数，合句即可
 //   micro-action-tic             mechanical  固定补语「了下/了一下」密度
 //   negation-pair-tic            semantic    「没A，也没B」否定对偶，留真正要强调的
@@ -486,10 +504,65 @@ const REVIEW_CLASSES = Object.freeze({
   'intensifier-abuse': 'mechanical',
 });
 
+// category：处置方式分类，与 severity 正交。severity 说「拦不拦」，category 说「该不该改」。
+// 混在一个 advisory 里的后果是模型无从判断：`not-is-comparison`（真 AI 腔，必须改）与
+// `metaphor-density-tic`（文学手法，多数该保留）同样是一行 advisory，改错了反而更假。
+//   ai-tone     真 AI 腔：句式/推理方式/程度加码，改了才对
+//   cliche      网文水词：该删，但删了只是「不那么水」，不改也是人写的
+//   literary    文学手法：比喻/引号强调/过滤动词，先判断，多数保留
+//   readability 可读性：碎句号/段落呼吸/连接密度，看节奏，不是 AI 指纹
+const CATEGORIES = Object.freeze({
+  'hard-banned-word': 'ai-tone',
+  'not-is-comparison': 'ai-tone',
+  'voice-contrast': 'ai-tone',
+  'negation-parade': 'ai-tone',
+  'reverse-not-is': 'ai-tone',
+  'trailer-ending': 'ai-tone',
+  'trailer-summary': 'ai-tone',
+  'negation-pair-tic': 'ai-tone',
+  'emotion-label-tic': 'ai-tone',
+  'abstract-summary-tic': 'ai-tone',
+  'reasoning-chain-tic': 'ai-tone',
+  'formulaic-parallelism': 'ai-tone',
+  'intensifier-abuse': 'ai-tone',
+  'em-dash': 'readability',
+  'period-stutter': 'readability',
+  'weak-verb-tic': 'readability',
+  'action-list-tic': 'readability',
+  'system-notice-formality-tic': 'readability',
+  'overcompressed-prose-tic': 'readability',
+  'low-connective-density-tic': 'readability',
+  'decorative-symbol': 'readability',
+  'micro-action-tic': 'cliche',
+  'cliche-density-tic': 'cliche',
+  'stock-reaction-tic': 'cliche',
+  'crowd-sync-tic': 'cliche',
+  'metaphor-density-tic': 'literary',
+  'quote-emphasis-tic': 'literary',
+  'filter-verb-tic': 'literary',
+});
+
+// 两张表必须键集一致：新增 finding type 时，review 与 category 都要登记。
+// 这里在模块加载期就断言，避免「加了规则忘了分类」到运行期才炸（或更糟：静默缺字段）。
+{
+  const missCat = Object.keys(REVIEW_CLASSES).filter((t) => !CATEGORIES[t]);
+  const missRev = Object.keys(CATEGORIES).filter((t) => !REVIEW_CLASSES[t]);
+  if (missCat.length || missRev.length) {
+    console.error(`internal error: REVIEW_CLASSES 与 CATEGORIES 键集不一致`
+      + `（缺 category: ${missCat.join(', ') || '无'}；缺 review: ${missRev.join(', ') || '无'}）`);
+    process.exit(2);
+  }
+}
+
+function categoryOf(type) {
+  return CATEGORIES[type];
+}
+
 const options = {
   json: false,
   files: [],
   failOn: 'all',
+  diff: null,
 };
 
 for (let i = 2; i < process.argv.length; i += 1) {
@@ -499,6 +572,16 @@ for (let i = 2; i < process.argv.length; i += 1) {
   } else if (arg === '--list-review-classes') {
     process.stdout.write(`${JSON.stringify(REVIEW_CLASSES, null, 2)}\n`);
     process.exit(0);
+  } else if (arg === '--list-categories') {
+    process.stdout.write(`${JSON.stringify(CATEGORIES, null, 2)}\n`);
+    process.exit(0);
+  } else if (arg === '--diff') {
+    const next = process.argv[i + 1];
+    if (!next || next.startsWith('-')) die('--diff 需要一个 before.json 路径（上一次 --json 的输出）');
+    options.diff = next;
+    i += 1;
+  } else if (arg.startsWith('--diff=')) {
+    options.diff = arg.slice('--diff='.length);
   } else if (arg === '--json') {
     options.json = true;
   } else if (arg.startsWith('--fail-on=')) {
@@ -536,22 +619,108 @@ for (const file of options.files) {
   let whitelist;
   try { whitelist = loadStyleWhitelist(fullPath); }
   catch (error) { die(`${file}: unable to read .deslop-whitelist (${error.message})`); }
-  const findings = scanDocument(maskStyleText(input, whitelist)).map((finding) => ({ file, ...finding, review: reviewClass(finding.type) }));
+  const findings = scanDocument(maskStyleText(input, whitelist)).map((finding) => ({
+    file,
+    ...finding,
+    review: reviewClass(finding.type),
+    category: categoryOf(finding.type),
+  }));
   allFindings.push(...findings);
 }
 
+const diff = options.diff ? buildDiff(options.diff, allFindings) : null;
+
 if (options.json) {
-  process.stdout.write(`${JSON.stringify({ findings: allFindings }, null, 2)}\n`);
+  const payload = { findings: allFindings };
+  if (diff) payload.diff = diff;
+  process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
 } else {
   for (const finding of allFindings) {
-    console.log(`${finding.file}:${finding.line}:${finding.column}: [${finding.severity}] ${finding.type}: ${finding.message} (${finding.excerpt})`);
+    console.log(`${finding.file}:${finding.line}:${finding.column}: [${finding.severity}] ${finding.type} (${finding.category}): ${finding.message} (${finding.excerpt})`);
   }
+  if (diff) printDiff(diff);
 }
 
 if (failed) process.exit(2);
 // --fail-on=blocking 只在出现 blocking finding 时退出 1（advisory 仅报告）；默认 all 沿用「有任何 finding 即 1」。
 const hasBlocking = allFindings.some((f) => f.severity === 'blocking');
 if (options.failOn === 'blocking' ? hasBlocking : allFindings.length > 0) process.exit(1);
+
+// 改前／改后对比（v3.0，--diff）：before.json 来自上一次 `--json` 输出。
+// 目的不是再看一遍命中，而是看「改完有没有改过头」——某个类型从 2 涨到 7，说明这轮修法
+// 在制造新毛病；blocking 归零但 advisory 翻倍，说明是转移而不是修好。
+// 只做计数对比，不做逐段文本 diff：改一句往往挪动整段，文本 diff 全是噪声。
+function buildDiff(beforePath, afterFindings) {
+  let before;
+  try {
+    before = JSON.parse(fs.readFileSync(path.resolve(beforePath), 'utf8'));
+  } catch (error) {
+    die(`--diff 读不了 ${beforePath}：${error.message}`);
+  }
+  const beforeFindings = Array.isArray(before) ? before : (before.findings || []);
+  const tally = (list) => {
+    const map = new Map();
+    for (const f of list) {
+      const cur = map.get(f.type) || { count: 0, blocking: 0, advisory: 0 };
+      cur.count += 1;
+      if (f.severity === 'blocking') cur.blocking += 1; else cur.advisory += 1;
+      map.set(f.type, cur);
+    }
+    return map;
+  };
+  const b = tally(beforeFindings);
+  const a = tally(afterFindings);
+  const types = [...new Set([...b.keys(), ...a.keys()])].sort();
+  const rows = types.map((type) => {
+    const x = b.get(type) || { count: 0, blocking: 0, advisory: 0 };
+    const y = a.get(type) || { count: 0, blocking: 0, advisory: 0 };
+    const sample = afterFindings.find((f) => f.type === type) || beforeFindings.find((f) => f.type === type) || {};
+    return {
+      type,
+      category: sample.category || null,
+      before: x.count,
+      after: y.count,
+      delta: y.count - x.count,
+      before_blocking: x.blocking,
+      after_blocking: y.blocking,
+    };
+  });
+  return {
+    before: {
+      total: beforeFindings.length,
+      blocking: beforeFindings.filter((f) => f.severity === 'blocking').length,
+    },
+    after: {
+      total: afterFindings.length,
+      blocking: afterFindings.filter((f) => f.severity === 'blocking').length,
+    },
+    rows,
+  };
+}
+
+function printDiff(diff) {
+  const { before, after, rows } = diff;
+  console.log('');
+  console.log(`前后对比：${before.total} → ${after.total} 处（blocking ${before.blocking} → ${after.blocking}）`);
+  if (rows.length === 0) {
+    console.log('  两版都没有命中。');
+    return;
+  }
+  console.log(`  ${'type'.padEnd(30)} ${'before'.padStart(6)} ${'after'.padStart(6)} ${'Δ'.padStart(4)}`);
+  for (const r of rows) {
+    const mark = r.delta > 0 ? `+${r.delta}` : String(r.delta);
+    const label = r.category ? `${r.type} (${r.category})` : r.type;
+    console.log(`  ${label.padEnd(30)} ${String(r.before).padStart(6)} ${String(r.after).padStart(6)} ${mark.padStart(4)}`);
+  }
+  const grew = rows.filter((r) => r.delta > 0 && r.after >= 2);
+  if (grew.length) {
+    console.log('');
+    console.log(`注意：${grew.map((r) => r.type).join('、')} 比改前更多——可能是这轮修法在制造新毛病，不是修好了。`);
+  }
+  if (after.blocking === 0 && after.total > before.total) {
+    console.log('注意：blocking 清零但总命中变多，属于「转移」不是「修好」。');
+  }
+}
 
 function reviewClass(type) {
   const review = REVIEW_CLASSES[type];
@@ -646,23 +815,48 @@ function scanDocument(input, unclosedOpenings = new Set()) {
 function scanProsePatterns(proseLines) {
   const findings = [];
 
+  // 破折号先全章收集再定级（v3.0）：判据是「位置 + 密度」，不是「出现即 blocking」。
+  // 旧版一律 blocking，实测 137 字标准对话段 4 处全判死——其中 2 处在引号内，是中文表示
+  // 「话说一半被打断」的唯一写法，改了读者分不清谁打断谁。依据见
+  // references/rejected-signals.md X-10：破折号合并口径不显著，拆开后不同模型方向相反。
+  const dashHits = [];
+  let dashChars = 0;
   for (const { text, lineNo } of proseLines) {
     const trimmed = text.trim();
     if (!trimmed || isDivider(trimmed) || isStructural(trimmed)) continue;
-
+    dashChars += visibleLength(trimmed);
+    const ranges = quotedRanges(text);
     const dashPattern = /——|—|--+/g;
     let dash;
     while ((dash = dashPattern.exec(text)) !== null) {
-      findings.push({
+      dashHits.push({
         line: lineNo,
         column: dash.index + 1,
-        type: 'em-dash',
-        severity: 'blocking',
-        message: '破折号按功能改写：打断→动作 beat/短句，拖长音→省略或动作，插入说明→逗号/冒号；勿一律改句号。',
+        quoted: insideRanges(dash.index, ranges),
         excerpt: compact(text.slice(Math.max(0, dash.index - 8), dash.index + dash[0].length + 8)),
       });
     }
-
+  }
+  if (dashHits.length && dashChars) {
+    const perKilo = (dashHits.length / dashChars) * 1000;
+    const dense = perKilo >= DASH_BLOCKING_PER_KILO;
+    for (const hit of dashHits) {
+      findings.push({
+        line: hit.line,
+        column: hit.column,
+        type: 'em-dash',
+        severity: (!hit.quoted && dense) ? 'blocking' : 'advisory',
+        message: hit.quoted
+          ? '破折号在引号内（对话被打断／拖长音）：这是中文里打断话的唯一写法，不改标点。'
+            + '要收的是「连叙述带台词全靠破折号串场」，不是这一处。'
+          : (dense
+            ? `破折号 ${perKilo.toFixed(1)}/千字（≥${DASH_BLOCKING_PER_KILO} 警戒线）：引号外破折号按功能改写——`
+              + '打断→动作 beat／短句，拖长音→省略或动作，插入说明→逗号／冒号；勿一律改句号。'
+            : `破折号 ${perKilo.toFixed(1)}/千字，未到 ${DASH_BLOCKING_PER_KILO}/千字 警戒线：`
+              + '单个破折号是正常标点，别为过检删。'),
+        excerpt: hit.excerpt,
+      });
+    }
   }
 
   findings.push(...findHardBanned(proseLines));
@@ -1312,49 +1506,38 @@ function findClicheDensityTic(proseLines) {
 // 比喻密度：统计引号外叙述中“像/好像/仿佛/如同”等比喻标记。
 // 单个比喻不是问题；高密度成片时才提示，避免把文本改成另一种修辞模板。
 function findMetaphorDensityTic(proseLines) {
-  let hits = 0;
-  let narrativeChars = 0;
-  let firstLine = null;
-  const samples = [];
-
+  // 逐段计数：一段里 ≥3 个比喻标记才算成片（见上方常量注释）。
+  const hits = [];
   for (const { text, lineNo } of proseLines) {
     const trimmed = text.trim();
     if (!trimmed || isDivider(trimmed) || isStructural(trimmed)) continue;
     const narrative = stripQuoted(trimmed);
-    narrativeChars += visibleLength(narrative);
+    const marks = [];
+    let match;
 
     METAPHOR_MARKER_PATTERN.lastIndex = 0;
-    let match;
-    while ((match = METAPHOR_MARKER_PATTERN.exec(narrative)) !== null) {
-      hits += 1;
-      if (firstLine === null) firstLine = lineNo;
-      const sample = sentenceAround(narrative, match.index);
-      if (samples.length < 6 && sample && !samples.includes(sample)) samples.push(sample);
-    }
+    while ((match = METAPHOR_MARKER_PATTERN.exec(narrative)) !== null) marks.push(match[0]);
 
     METAPHOR_LIKE_PHRASE_PATTERN.lastIndex = 0;
     while ((match = METAPHOR_LIKE_PHRASE_PATTERN.exec(narrative)) !== null) {
       const prefix = narrative.slice(Math.max(0, match.index - 8), match.index);
       if (/好像|像是|像|仿佛|宛如|如同|犹如/.test(prefix)) continue;
-      hits += 1;
-      if (firstLine === null) firstLine = lineNo;
-      const sample = sentenceAround(narrative, match.index);
-      if (samples.length < 6 && sample && !samples.includes(sample)) samples.push(sample);
+      marks.push(match[0]);
     }
+
+    if (marks.length <= METAPHOR_PER_PARAGRAPH_MAX) continue;
+    hits.push({ line: lineNo, count: marks.length, marks, text: compact(narrative) });
   }
 
-  if (narrativeChars === 0 || hits < METAPHOR_DENSITY_MIN_HITS) return [];
-  const perKilo = (hits / narrativeChars) * 1000;
-  if (perKilo < METAPHOR_DENSITY_PER_KILO) return [];
-
-  return [{
-    line: firstLine,
+  return hits.slice(0, METAPHOR_MAX_FINDINGS).map((hit) => ({
+    line: hit.line,
     column: 1,
     type: 'metaphor-density-tic',
     severity: 'advisory',
-    message: `比喻密度过高：像/好像/仿佛/如同等比喻标记 ${hits} 处（${perKilo.toFixed(1)}/千字）；保留最有叙事功能的少数比喻，其余回到具体动作、物件、声音或后果，不要换成新比喻。`,
-    excerpt: compact(samples.join(' | ')),
-  }];
+    message: `同一段里比喻标记 ${hit.count} 处（${hit.marks.join('/')}）：比喻成片堆叠才是模板腔，`
+      + '一处比喻是正常修辞，别按全章密度删。保留最有叙事功能的那个，其余回到具体动作、物件、声音或后果，不要换成新比喻。',
+    excerpt: hit.text.slice(0, 60),
+  }));
 }
 
 // 解释链密度：统计引号外叙述中“知道/明白/这意味着/必须需要”等判断链。

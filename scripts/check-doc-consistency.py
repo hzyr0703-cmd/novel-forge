@@ -46,6 +46,14 @@ def load_lint_classes():
     return json.loads(p.stdout)
 
 
+def load_lint_categories():
+    p = subprocess.run(["node", os.path.join(CWD, "check-ai-patterns.js"), "--list-categories"],
+                       capture_output=True, text=True, encoding="utf-8")
+    if p.returncode != 0:
+        raise SystemExit("跑不动 node scripts/check-ai-patterns.js --list-categories：%s" % (p.stderr or ""))
+    return json.loads(p.stdout)
+
+
 def load_spec_module():
     """把 spec_check.py 当模块导入，直接读 THRESHOLDS / PLATFORM_PRESETS（不复制数字）。"""
     import importlib.util
@@ -161,6 +169,29 @@ def main():
                  % (key, gotf[0], gotf[1], cfg["first_chapter_words_min"], cfg["first_chapter_words_max"]))
         else:
             problems.append("platform-adaptation.md 表格里找不到 %s 那一行" % key)
+
+    # 8) category 条数：deslop.md 的四类分区条数必须等于代码（v3.0）
+    cats = load_lint_categories()
+    need(len(cats) == total, "CATEGORIES 有 %d 条，规则表 %d 条（键集必须一一对应）" % (len(cats), total))
+    for cname in ("ai-tone", "cliche", "literary", "readability"):
+        actual = sum(1 for v in cats.values() if v == cname)
+        m = re.search(r"\| `%s` \|[^\n]*\| (\d+) \|" % cname, deslop)
+        if m:
+            need(int(m.group(1)) == actual,
+                 "deslop.md 说 %s 类是 %s 条，实测 %d 条" % (cname, m.group(1), actual))
+        else:
+            problems.append("deslop.md 的分类表找不到 `%s` 行的条数" % cname)
+
+    # 9) X 级已否决清单：文档存在、条数够、SKILL.md 有路由（v3.0）
+    rejected_path = os.path.join(ROOT, "references", "rejected-signals.md")
+    need(os.path.exists(rejected_path), "references/rejected-signals.md 不存在")
+    if os.path.exists(rejected_path):
+        rejected = read(rejected_path)
+        xids = set(re.findall(r"\*\*(X-\d+)\*\*", rejected))
+        need(len(xids) >= 8, "rejected-signals.md 只有 %d 条 X 级结论（至少要 8 条）" % len(xids))
+        need("rejected-signals.md" in skills, "SKILL.md 没有路由到 rejected-signals.md（加规则前要能查到）")
+        need("test-rejected-signals.py" in skills, "SKILL.md 脚本表没登记 test-rejected-signals.py")
+        need("test-rejected-signals.py" in deslop, "deslop.md 没说明 X 级由谁守卫")
 
     # 7) 版本三处一致
     m = re.search(r"^version:\s*([0-9.]+)\s*$", skills, re.M)

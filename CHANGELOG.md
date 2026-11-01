@@ -4,6 +4,69 @@
 > 详细的翻车原理见 SKILL.md 第十四节坑位 1–29，此处只留版本脉络。
 > **版本号三处必须同步**：本文件首个 `## vX.Y` / `SKILL.md` frontmatter `version` / git commit 标题。
 
+## v3.0
+
+> 主题：**给规则加第三档，并承认四条判据的方向是反的**。
+> 来源：`.workbuddy/plans/2026-11-01-lieflat逆向报告.md`（逆向 `larashero3-dotcom/lieflat-less-ai-tone`）。
+> 那份项目的两轮实验（629 篇不配对 + 270 对同题同事实配对复测 + 43 万次语义判断）证明：
+> **不配对测出的「AI 味」，配对后可能反过来——人类用得更多。** 我的 skill 只有人类基线、
+> 没有 AI 侧语料，所以能算「偏离人类」，不能算「这个偏离是不是 AI 特有」。这一版修的就是这批。
+
+**判据方向错了的三条（P0/P1）**
+
+- **破折号改条件 blocking**（报告 P0-1）：旧版一律 blocking，实测 137 字标准对话段 4 处全判死，
+  其中 3 处在引号内——中文表示「话说一半被打断」只有破折号一种写法，改了读者分不清谁打断谁。
+  现在：引号内恒 advisory；引号外保留 blocking，但需全章密度 ≥`DASH_BLOCKING_PER_KILO`(2/千字)。
+  依据是合并口径把两个相反方向抵消了：拆开看 GPT δ −0.54（比人类还少）／Opus δ +0.95（偏多）
+- **比喻改逐段判**（P1-4）：旧版按全章密度（≥7 处且 ≥3/千字），配对复测人类比喻标记
+  0.38/千字 vs AI 0.16——**人类多 2.4 倍**，按密度判等于惩罚爱用比喻的作者。
+  现在只看「同一段里 ≥3 个」，也顺带给出可定位的行号。同时删掉 `CLICHE_PATTERNS` 的
+  比喻词族（与 `METAPHOR_MARKER_PATTERN` 重复计数同一批词）
+- **「这意味着/也就是说/换句话说」移出解释链**（P1-5）：三项配对复测全反
+  （人类 0.027 vs AI 0.016/千字），小说里还常是角色口语转述。connector 组只留真 AI 腔
+  （真正的问题在于/问题在于/关键在于/在这种情况下/按照这个逻辑/只有这样/想到这里）
+
+**机制层（P0-2 / P1-6 / P2-7 / P2-8）**
+
+- **新增 X 级已否决清单**（`references/rejected-signals.md`，X-1~X-10）：每条写着「第一轮怎么说 /
+  配对复测怎么变 / 为什么推翻 / 落地约束」。这是最重要的一项——lint 只有「拦」和「提示」两级时，
+  规则库只会增不会减；每多一条规则，未来就多一条要论证的
+- **新增 `scripts/test-rejected-signals.py`（11 用例）**：源码层拦「把已否决词加回
+  `CLICHE_PATTERNS` / `REASONING_CHAIN_PATTERNS`」，行为层验「这意味着/换言之/分散比喻」零命中、
+  「引号内破折号不判 blocking」，并保留反向对照（同段 3 个比喻仍报）。文档与脚本的 X-ID 双向核对。
+  **负向测试过**：把「仿佛」加回 CLICHE，守卫立刻红
+- **`category` 字段（四类）**：`ai-tone`(13) / `cliche`(4) / `literary`(3) / `readability`(8)。
+  `severity` 说「拦不拦」，`category` 说「该不该改」。旧版把「眼中闪过」与「她的眼睛像灯」
+  同样打成一行 advisory，模型无从判断——前者该删，后者该留。`--list-categories` 可查全表；
+  两张表在模块加载期断言键集一致，漏登记直接退出 2。`deslop.md` 按四类重排
+- **`--diff=before.json`**：按 type 对比改前改后，看是「修好了」还是「改过头了」。
+  某类从 2 涨到 7 会明确提示「这轮修法在制造新毛病」；blocking 归零但总数变多提示「转移不是修好」
+- **`check-distribution.py` 报组间极差**：`[组间]` 行列出 4 本书的 min–max 与倍数，
+  极差 ≥5× 的指标额外提示「人类内部不一致，别单独当判据」——merged 加权平均会把方向相反的
+  差异抵消成「正常」（破折号就是活教材）
+
+**删配额（P1-3）**
+
+- 「40 字以上长句 ≥10%」从 6 个文件里全部删掉（SKILL.md 3 处 + chinese-prose-craft /
+  style-cold-urban / style-myth-urban / style-refit / reader-reward），改成**诊断问句**：
+  「整章一个长句都没有 → 铺陈处是不是被拆碎了？」
+- `check-distribution.py` 的 1b 从「占比 <10%」改成「长句为 0」，2b 同样改问句口径。
+  理由见坑位 30：**指标一旦可数，就变成优化目标**，模型会合并句子凑到 10%，句子变长了节奏更假
+
+**文档**
+
+- SKILL.md 新增「advisory 不是一个整体：先看 category」表、坑位 30（配额诱导凑数）、
+  31（合并口径抵消相反信号）；路由表加「觉得某个特征像 AI → 先查 rejected-signals.md」
+- `deslop.md` 重写为四类分区 + X 级说明 + `--diff` 用法；blocking 表标出 em-dash 条件判
+- `check-doc-consistency.py` 新增两项：category 条数与 deslop 分区对账、X 级清单存在性与路由检查
+
+**回归**
+
+- `forge.py selftest` 新增 15a（破折号条件判）/ 15b（比喻逐段判）/ 15c（--diff），37 例全绿
+- `test-rejected-signals.py` 11 例、`check-doc-consistency.py`、schema 19/19、ledger 19、
+  别名 13、盲评 45 全过
+- 实跑第 1 章：draft/final 双层 blocking 0 / advisory 0，无新规则误伤
+
 ## v2.9
 
 > 主题：**跨过字面鸿沟**。回答「能不能写完 80 万字」时实测出来的唯一硬缺口。

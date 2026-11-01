@@ -11,12 +11,13 @@ novel-forge 分布级检测（v2.0）。
 
 检测项：
   1. 句长分布   标准差/偏度/峰度 vs 人类基线
-  1b. 长句存在性 40 字以上句子占比 <10% → advisory（「分布在短端」盲区：
-                均匀短句的 sd/skew 可能侥幸过线，但人类基线 40 字以上
-                句约占 15%（p75=34.6/p90=53），一章没有必然异常）
+  1b. 长句存在性 整章 40 字以上句子为 0 → advisory（「分布在短端」盲区：
+                均匀短句的 sd/skew 可能侥幸过线）。**只查存在性，不设占比配额**——
+                lieflat 配对复测人机句长离散度无差异（|δ|<0.2），写成「≥10%」的
+                配额会让模型合并句子去达标，反而更假。见 references/rejected-signals.md X-8
   2. 段长分布   90% 段落是否挤在同一区间（过度均匀）
   2b. 长段存在性 70 字以上段落为 0 → advisory（人类基线 p90=66.5/p99=107.8，
-                铺陈/闪回/过渡处本该有长段；永远短段 = AI 腔）
+                铺陈/闪回/过渡处本该有长段；永远短段 = AI 腔）。同为存在性判断
   3. 对话占比   按 500 字窗口的方差（节奏是否太匀）
   4. 信息密度   连续 N 段全部「推进」（无闲笔）
   5. 伏笔间隔   埋设→回收间隔是否全挤在 1–3 章（太工整）——需追踪数据，可选
@@ -323,6 +324,51 @@ def load_baseline(path):
     return d.get("merged") or d
 
 
+# ---- 组间极差（v3.0）----
+# merged 是各书加权平均。如果两本书在某指标上方向相反，平均会给出「正常」的假结论。
+# lieflat 的破折号就是活教材：合并口径「不显著」，拆开 GPT δ −0.54 / Opus δ +0.95，
+# 两个相反方向抵消成零。所以把每本书的值单独列出来，极差大的指标不要单独当判据。
+GROUP_RANGE_METRICS = [
+    ("句长 CV", "sentence", "cv"),
+    ("句长 p90", "sentence", "p90"),
+    ("段长 CV", "paragraph", "cv"),
+    ("段长 p90", "paragraph", "p90"),
+    ("对话占比", "dialogue_ratio", "mean"),
+]
+GROUP_RANGE_ALERT = 5.0   # 极差 ≥5 倍：人类内部都不一致，别拿它判 AI
+
+
+def group_range(path):
+    """返回各指标在人类基线各组（每本书）之间的极差。"""
+    if not os.path.exists(path):
+        return None
+    with open(path, "r", encoding="utf-8") as f:
+        d = json.load(f)
+    books = d.get("books") or {}
+    if len(books) < 2:
+        return None
+    rows = []
+    for label, section, key in GROUP_RANGE_METRICS:
+        vals = []
+        for name, book in books.items():
+            v = (book.get(section) or {}).get(key)
+            if isinstance(v, (int, float)):
+                vals.append((name, float(v)))
+        if len(vals) < 2:
+            continue
+        lo = min(vals, key=lambda x: x[1])
+        hi = max(vals, key=lambda x: x[1])
+        ratio = (hi[1] / lo[1]) if lo[1] else float("inf")
+        rows.append({
+            "metric": label,
+            "min": round(lo[1], 3), "min_book": lo[0],
+            "max": round(hi[1], 3), "max_book": hi[0],
+            "ratio": round(ratio, 2) if ratio != float("inf") else None,
+            "alert": ratio >= GROUP_RANGE_ALERT,
+        })
+    return {"books": len(books), "rows": rows, "alert_ratio": GROUP_RANGE_ALERT} if rows else None
+
+
 def check_distribution(path, baseline_path=DEFAULT_BASELINE):
     raw = read(path)
     text = strip_markdown_scaffold(strip_comments(raw))
@@ -344,6 +390,15 @@ def check_distribution(path, baseline_path=DEFAULT_BASELINE):
         "p90": percentile(sents, 0.9),
     }
     base = load_baseline(baseline_path)
+    grp = group_range(baseline_path)
+    if grp:
+        for row in grp["rows"]:
+            if row["alert"]:
+                adv.append("人类基线内部%s 极差 %.1f×（%s %.2f → %s %.2f）："
+                           "这个指标人类自己就不一致，别单独拿它判 AI——"
+                           "平均之后的 merged 会把方向相反的差异抵消成「正常」。"
+                           % (row["metric"], row["ratio"] or 0,
+                              row["min_book"], row["min"], row["max_book"], row["max"]))
     if base:
         bs = base.get("sentence", {})
         b_std = bs.get("stdev")
@@ -363,17 +418,17 @@ def check_distribution(path, baseline_path=DEFAULT_BASELINE):
                        % sent_stats["p90"])
 
     # ---- 1b. 长句存在性（分布在短端盲区）----
-    # 人类基线 sentence p75=34.6 / p90=53 → ≥40 字句约占 15–18%。
-    # 阈值 10% 卡在人类常态下沿之下：人类章不触发，AI 均匀短句章触发。
+    # v3.0 改判据：从「占比 <10%」改成「为 0」。旧阈值是个配额，模型会为了过线去合并句子
+    # （且人机句长离散度实测无差异，见 references/rejected-signals.md X-8）。
+    # 这里只问一句：整章有没有长句？没有才提示回看铺陈处是不是被拆碎了。
     long_sents = sum(1 for L in sents if L >= 40)
     sent_stats["long_ge40"] = long_sents
     sent_stats["long_ge40_ratio"] = round(long_sents / len(sents), 3) if sents else 0.0
-    if len(sents) >= 30 and long_sents / len(sents) < 0.10:
-        adv.append("40 字以上长句仅 %d/%d（%.0f%%，<10%%）→ 全章几乎无长句。"
-                   "人类基线 40 字以上句约占 15%%（p75=34.6 / p90=53）。"
-                   "别全篇同一个呼吸节奏：把该断的短句用逗号/连词接起来，"
-                   "每章至少 3 个长句。"
-                   % (long_sents, len(sents), long_sents / len(sents) * 100))
+    if len(sents) >= 30 and long_sents == 0:
+        adv.append("整章 %d 句里没有一句到 40 字 → 问一句：铺陈、回忆、场景过渡处"
+                   "是不是本来该有一段长句，被拆成碎句了？（不是要凑百分比："
+                   "人类基线 p90=53 是参照，不是目标线；见 rejected-signals.md X-8）"
+                   % len(sents))
 
     # ---- 2. 段长分布 ----
     para_stats = {
@@ -399,9 +454,9 @@ def check_distribution(path, baseline_path=DEFAULT_BASELINE):
     long_paras = sum(1 for L in paras if L >= 70)
     para_stats["long_ge70"] = long_paras
     if len(paras) >= 10 and long_paras == 0:
-        adv.append("70 字以上段落为 0（共 %d 段，最长 %d 字）→ 段长全挤在短端。"
-                   "人类基线 p90=66.5：铺陈、闪回、场景过渡处本该有长段。"
-                   "允许一到两段「本来可以拆成三段但选择不拆」的长段。"
+        adv.append("70 字以上段落为 0（共 %d 段，最长 %d 字）→ 问一句：铺陈、闪回、"
+                   "场景过渡处是不是被一律切碎了？人类基线 p90=66.5，长段在人类笔下是常态。"
+                   "不用凑段数：真需要时，一段「本来可以拆成三段但选择不拆」就够。"
                    % (len(paras), max(paras) if paras else 0))
 
     # ---- 3. 对话占比波动 ----
@@ -441,6 +496,7 @@ def check_distribution(path, baseline_path=DEFAULT_BASELINE):
         "advisories": adv,
         "advisory_count": len(adv),
         "baseline": os.path.basename(baseline_path) if base else None,
+        "group_range": grp,
     }
 
 
@@ -450,6 +506,13 @@ def _chapter_no(path):
 
 
 # ---------------------------------------------------------------- 输出
+
+def _fmt(v):
+    """极差显示的通用数字格式：整数不带小数点，小数一位。"""
+    if isinstance(v, float) and abs(v - round(v)) < 1e-9:
+        return "%d" % round(v)
+    return ("%.2f" % v).rstrip("0").rstrip(".") if abs(v) < 10 else "%.0f" % v
+
 
 def print_report(r):
     print("=" * 72)
@@ -469,6 +532,13 @@ def print_report(r):
     print("  [对话] 全章占比=%.1f%% 窗口方差=%.4f(%d窗)"
           % (r["dialogue_ratio"] * 100, r["dialogue_window_variance"], r["dialogue_windows"]))
     print("  [密度] 最长连续推进段=%d" % r["longest_advance_run"])
+    grp = r.get("group_range")
+    if grp:
+        parts = []
+        for row in grp["rows"]:
+            ratio = ("%.1f×" % row["ratio"]) if row["ratio"] else "∞"
+            parts.append("%s %s–%s %s" % (row["metric"], _fmt(row["min"]), _fmt(row["max"]), ratio))
+        print("  [组间] %d 本书的极差：%s" % (grp["books"], "；".join(parts)))
     print("-" * 72)
     if r["advisories"]:
         for i, a in enumerate(r["advisories"], 1):
