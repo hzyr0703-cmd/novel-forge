@@ -42,6 +42,11 @@
   新增坑位 28（禁词不禁族＝在教模型背替换表）与 29（同一现象三套口径＝三套事实）
 - **工程可追溯（P2-18／P2-20）**：先 `7d9682e` 存档 v2.4.3 之后积压的 8 改 7 新；新增
   `.gitattributes`（`* text=auto eol=lf`）阻止 `core.autocrlf` 把脚本 CRLF 化
+- **新增 `scripts/check-doc-consistency.py`（防复发机制）**：把「文档里的数字」与「代码里的事实」
+  逐项对账——规则总数/blocking 数（读 `--list-review-classes`）、段长三档（读 `THRESHOLDS`）、
+  字数带与首章带宽、平台预设（读 `PLATFORM_PRESETS`）、版本号三处、deslop 是否覆盖全部规则类型；
+  不一致退非 0。负向测试过：把「≤90 字」改成 95、「28 类」改成 26 都会被抓出来。
+  这是对质检报告根因 2 的直接回答——漂移不是笔误，是没有校验机制
 - **回归**：`forge.py selftest` 新增用例 14a–14d（段长两档 / 平台预设 / 同义对称 / all 查两层），
   34 例全绿；`test_schema_compat.py` 19/19、`test_ledger.py` 19 例、`test_llm_review_*` 未受影响
 - **仍未做（第二批）**：SKILL.md 743 行 / 70KB 的上下文税——§十四 坑位、§十五 资源地图、

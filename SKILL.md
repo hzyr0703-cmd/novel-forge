@@ -776,6 +776,7 @@ blocking——违背它们不会被门禁拦，但正文会「对而乏味」，
 | `test_schema_compat.py`        | **台账 schema 回归测试**，两套等价写法交叉验证，改台账结构后必跑                                                                                           |
 | `test_llm_review_pairing.py`   | **盲评/核对逻辑离线测试**（45 用例，不联网不读 key）：换位投票一致性、tally 统计、细纲路径推导、章节定位、JSON 提取鲁棒性（思维链/围栏/嵌套/未闭合思维链/顶层数组）、thinking payload、空 content 诊断、provider 预设与 env 优先级。改 `llm_review.py` 后必跑                                  |
 | `test_llm_review_e2e.py`       | **盲评/核对端到端测试**（10 用例）：起本地假 OpenAI 兼容端点走真实 HTTP，验两轮换位真的换了内容、--model 覆盖、--provider 接管端点、端点不可达时不阻断（只连 127.0.0.1，用假 key）                        |
+| `check-doc-consistency.py`     | **文档 / 代码口径对账**（v2.8）：规则数、段长阈值、字数带、平台预设、版本号、deslop 是否覆盖全部规则——全部从代码读事实再回查文档，不一致退非 0。防的是「文档改一处、脚本改另一处」的漂移 |
 | `test_ledger.py`               | **挂账台账 + 实际回收时序回归**（19 用例）：add/fulfill/overdue/check 全链路、payback≤违背章拒绝、损坏台账退出码 2、gate 集成显示挂账且不改退出码、`promise-payoff-actual-before-plant`（已回收条目 updated_chapter 早于埋设章被报、同章埋收不误报）                    |
 
 修改任何脚本后跑 `python forge.py selftest`（改动前先看它是否全绿）。  
@@ -784,6 +785,9 @@ blocking——违背它们不会被门禁拦，但正文会「对而乏味」，
 改了 `llm_review.py` 额外跑  
 `python scripts/test_llm_review_pairing.py`（离线逻辑）+ `python scripts/test_llm_review_e2e.py`（真实 HTTP 路径）。  
 改了 `ledger.py` 或 factconflicts 伏笔规则额外跑 `python scripts/test_ledger.py`。  
+**改完文档（或改完阈值 / 规则）跑 `python scripts/check-doc-consistency.py`**——它把「文档里的数字」
+与「代码里的事实」逐项对账（规则数 / 段长 / 字数带 / 平台预设 / 版本号 / deslop 是否覆盖全部规则），
+不一致就退非 0。这个脚本存在的原因就是根因 2：数字散落在十几个文件里，靠人记必然漂移。  
 第三方来源与修改约定见 `scripts/VENDOR-NOTICE.md`——**不要静默调整 lint 阈值**，  
 每个数字都对应一条语料校准记录；规格阈值与分层改 `spec_check.py` 的 `THRESHOLDS`，  
 换平台见 `references/platform-adaptation.md`，分布基线见 `references/human-baseline.json`。
