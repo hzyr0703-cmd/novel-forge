@@ -4,6 +4,11 @@
 > 详细的翻车原理见 SKILL.md 第十四节坑位 1–29，此处只留版本脉络。
 > **版本号三处必须同步**：本文件首个 `## vX.Y` / `SKILL.md` frontmatter `version` / git commit 标题。
 
+## v2.8.1
+
+- 新增 `scripts/check-doc-consistency.py` 并登记进脚本表与收尾检查清单（详见 v2.8 条目末）
+- 版本号三处同步：frontmatter `2.8.1` / 本节 / commit 标题
+
 ## v2.8
 
 > 主题：**止血**。来源是 `.workbuddy/plans/2026-11-01-novel-forge-逆向质检报告.md`（24/40）。
