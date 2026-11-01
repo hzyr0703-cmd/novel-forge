@@ -31,10 +31,14 @@ Detect high-risk AI-flavor prose patterns that need human rewrite:
   - 预告式总结收尾 (文末窗口 没人知道/才刚刚开始/正朝着…压了过去, 实战漏网句式)
   - 章尾状态总结体 (文末窗口 这一夜注定/这一切都结束了/新的人生才刚刚开始/命运的齿轮)
   - 引号强调滥用 (叙述里 1-4 字短词加引号强调，密度型)
+  - 群体同步词 (全场哗然/鸦雀无声/齐刷刷/不约而同单次即报；所有人/众人/全都等泛指词密度型；
+    对应 references/human-reaction.md 的「群体必须分裂」——一群人被写成一个反应)
+  - 装饰符号 (✦✨◆★➤ 一类符号当点缀或分隔，正文用空行)
+  - 极端词过量 (叙述里 非常/极其/无比/十分/特别 等 ≥4 处，程度应靠具体画面给)
 
 Book-local .deslop-whitelist literal spans are excluded from style scanning (no regex or ancestor inheritance).
 Each finding carries severity: blocking by default for generation/deslop cleanup (not-is-comparison / em-dash / voice-contrast / negation-parade / reverse-not-is / trailer-ending / trailer-summary). This is a local style/readability gate, not an AIGC detector score; functional human text can be marked for review instead of hard-edited for a detector.
-或 advisory (period-stutter / long-paragraph / micro-action-tic / negation-pair-tic / stock-reaction-tic / action-list-tic / abstract-summary-tic / cliche-density-tic / metaphor-density-tic / reasoning-chain-tic / system-notice-formality-tic / overcompressed-prose-tic / low-connective-density-tic / quote-emphasis-tic / formulaic-parallelism，是提示，justified 的长推理/氛围段可保留)。
+或 advisory (period-stutter / long-paragraph / micro-action-tic / negation-pair-tic / stock-reaction-tic / action-list-tic / abstract-summary-tic / cliche-density-tic / metaphor-density-tic / reasoning-chain-tic / system-notice-formality-tic / overcompressed-prose-tic / low-connective-density-tic / quote-emphasis-tic / formulaic-parallelism / weak-verb-tic / emotion-label-tic / crowd-sync-tic / filter-verb-tic / decorative-symbol / intensifier-abuse，是提示，justified 的长推理/氛围段可保留)。
 --fail-on=blocking 只在出现 blocking finding 时退出 1；默认 --fail-on=all 有任何 finding 即退出 1。
 Each finding also carries review: mechanical（表面形态确定、就地改写即可）或 semantic（可能承担叙事功能，需读上下文判断是否保留）；blocking 一律 mechanical。--list-review-classes 输出完整分类表（JSON）。
 HTML comments (<!-- ... -->, e.g. the 去味:跳过 exemption marker) are metadata, not prose, and are never scanned.
@@ -56,6 +60,39 @@ const STUTTER_MAX_SENTENCE = 5;
 // 长段落：单段原始字符数超过阈值即提示按镜头断段（手机阅读保守阈值，正常单段远低于此）。
 const LONG_PARAGRAPH_CHARS = 200;
 
+// 群体同化（references/human-reaction.md H1/H4）：把一群人写成一个整体，是「人在演、
+// 没人在活」最强的指纹。分两档，避免把正常中文一起打掉：
+//   1) 强同步词：单次命中即报——这个词本身就是「全体同一反应」的缩写，没有可救的上下文。
+//   2) 泛指词：所有人/众人/全都/大家都 反复出现才报——单次「所有人都看她」是正常中文。
+// 引号内台词豁免（「你们全都得死」是人物口吻，不是叙述层同化）。
+// 常量必须放在文件顶部：scanProsePatterns 在模块加载时即被调用，函数声明提升但 const 不提升。
+const CROWD_HARD_SYNC = [
+  '鸦雀无声', '一片死寂', '全场哗然', '一片哗然', '满座皆惊', '人人大惊',
+  '齐刷刷', '不约而同', '无一例外', '无一人敢', '无人敢', '全都愣', '全都呆',
+];
+const CROWD_SOFT_SYNC = ['所有人', '众人', '全都', '大家都', '集体', '人人', '满场', '全场', '四下', '人群'];
+const CROWD_SOFT_MIN = 4;
+
+// 过滤器动词（references/narrative-distance.md）：把读者挡在「他看见／他感到」之外的感知动词。
+// 单段堆叠 3 个 = 转述腔（最典型）；整章 ≥6/千字 = 全程解说词。
+// 标定：正常中文网文实测 0.7–1.2/千字，阈值取 6 约为基线的 5 倍，误报风险低。
+// 常量必须留在文件顶部——prose 扫描在模块加载时即被调用，const 不提升。
+const FILTER_VERBS = [
+  '看见', '看到', '听见', '听到', '感到', '觉得', '注意到', '发现',
+  '察觉', '意识到', '闻到', '想起', '明白', '知道',
+];
+const FILTER_VERB_PARAGRAPH_MAX = 3;
+const FILTER_VERB_DENSITY_MIN = 6;
+
+// 装饰符号癖（references/human-texture.md 八·3）：网文正文不用 ✦✨◆★ 一类符号当点缀
+// 或分隔，分隔场景用空行。★☆●○※ 不收，这些在系统文/注释里有正常用法，误报率高。
+const DECORATIVE_SYMBOL_PATTERN = /[✦✧✨❖◆◇▪▫★➤➢▶►]/g;
+
+// 极端词滥用（human-texture.md 八·1）：非常/极其/无比/十分/特别/极大/极为 一激动就堆，
+// 程度应靠具体画面给。只扫引号外叙述（台词里「非常」是口语自然，豁免）；密度型 ≥4 处报一条。
+const INTENSIFIER_PATTERN = /(?:非常|极其|极为|无比|十分|特别|极大|极度|异常)/g;
+const INTENSIFIER_MIN_HITS = 4;
+
 // 微动作复读：「V了下 / V了一下 / 拍了两下 / 松了半圈」式轻量补语在叙述里高密度复现，
 // 容易形成删减过头的电报体指纹。只扫引号外叙述；密度与次数双门槛同时达标才报，
 // 单次出现是正常中文。
@@ -66,6 +103,19 @@ const MICRO_TIC_MIN_HITS = 5;
 const NEGATION_PAIR_PATTERN = /(?:没有|没|不)[^，。！？；,!?\n]{1,10}[，,；]\s*[^，。！？；,!?\n]{0,6}?也(?:没有|没|不)/g;
 const NEGATION_PAIR_MIN_HITS = 3;
 const MICRO_TIC_PER_KILO = 6;
+
+// 弱动词分解式（中文原则库「欧化病②」，advisory）：
+// 「进行/作出/加以/予以 + 抽象名词」把硬动词拆成虚动词+名词，是典型欧化腔，
+// AI 稿偏好这种"安全语态"。单处出现可能是正常搭配（如"进行处理"在公文体对话里），
+// 一章 ≥2 处才报，要求还原为硬动词（讨论→谈、分析→拆、处理→办）。
+const WEAK_VERB_PATTERN = /(?:进行|作出|做出|加以|予以)了?[^，。！？；,!?\n]{0,10}?(?:讨论|沟通|分析|研究|处理|调整|说明|解释|介绍|评估|检查|审查|审理|审核|核实|核验|调研|排查|梳理|勘察|比对|盘点|汇报|安排|部署|反击|改造|训练|修复|清理|确认|甄别|总结|回应|表决|登记|验收|裁定|演练|测试)/g;
+const WEAK_VERB_MIN_HITS = 2;
+
+// 情绪贴标签（reader-reward 失败模式④「labeling emotions」，advisory）：
+// 「感到/心头+情绪词」「一阵+情绪+涌上/袭来」直接告知情绪而非展示，模型稿高发。
+// 真人稿也有（尤其过渡段），按章 ≥4 处才报一条分布级提示；修法是换角色特有行为。
+const EMOTION_LABEL_PATTERN = /(?:(?:感到|觉得|感觉|心头|心中|心里)(?:一阵|有些|无比|说不出的|莫名的)?(?:愤怒|悲伤|难过|高兴|开心|恐惧|害怕|紧张|委屈|失望|痛苦|欣慰|羞愧|懊悔|恼火|烦躁|不安|愧疚|侥幸|心虚)|一阵(?:愤怒|悲伤|难过|喜悦|恐惧|酸楚|委屈|失落|心虚)(?:涌上|袭来|漫上|涌起|爬上|掠过))/g;
+const EMOTION_LABEL_MIN_HITS = 4;
 
 // 套式反应细节：不是禁写身体，而是提示成片出现的“部位 + 轻微动作/状态”、
 // “胸口像被撞了一下”、喉结/眼圈/声音放轻等通用情绪尾巴，以及“平静语气 +
@@ -380,6 +430,8 @@ const REVIEW_CLASSES = Object.freeze({
   'period-stutter': 'mechanical',
   'micro-action-tic': 'mechanical',
   'negation-pair-tic': 'semantic',
+  'weak-verb-tic': 'mechanical',
+  'emotion-label-tic': 'semantic',
   'cliche-density-tic': 'mechanical',
   'stock-reaction-tic': 'semantic',
   'action-list-tic': 'semantic',
@@ -391,6 +443,10 @@ const REVIEW_CLASSES = Object.freeze({
   'low-connective-density-tic': 'semantic',
   'quote-emphasis-tic': 'semantic',
   'formulaic-parallelism': 'semantic',
+  'crowd-sync-tic': 'semantic',
+  'filter-verb-tic': 'semantic',
+  'decorative-symbol': 'mechanical',
+  'intensifier-abuse': 'mechanical',
 });
 
 const options = {
@@ -601,6 +657,12 @@ function scanProsePatterns(proseLines) {
   findings.push(...findNoticeFormalityTic(proseLines));
   findings.push(...findOvercompressedProseTic(proseLines));
   findings.push(...findLowConnectiveDensityTic(proseLines));
+  findings.push(...findWeakVerbTic(proseLines));
+  findings.push(...findEmotionLabelTic(proseLines));
+  findings.push(...findCrowdSyncTic(proseLines));
+  findings.push(...findFilterVerbTic(proseLines));
+  findings.push(...findDecorativeSymbol(proseLines));
+  findings.push(...findIntensifierAbuse(proseLines));
   return findings;
 }
 
@@ -1019,6 +1081,170 @@ function findActionListTic(proseLines) {
 
 // 套词密度：统计引号外叙述中的高危禁用词聚集。不是逐词替换器；只在密度高到
 // 形成模板腔时提示，修法是删总结、换具体动作/物件/对话，不是同义词轮换。
+function findDecorativeSymbol(proseLines) {
+  const findings = [];
+
+  for (const { text, lineNo } of proseLines) {
+    const trimmed = text.trim();
+    if (!trimmed || isDivider(trimmed) || isStructural(trimmed)) continue;
+    DECORATIVE_SYMBOL_PATTERN.lastIndex = 0;
+    let match;
+    while ((match = DECORATIVE_SYMBOL_PATTERN.exec(text)) !== null) {
+      findings.push({
+        line: lineNo,
+        column: match.index + 1,
+        type: 'decorative-symbol',
+        severity: 'advisory',
+        message: `装饰符号「${match[0]}」：正文不用符号点缀或分隔场景，改用空行。`,
+        excerpt: compact(text.slice(Math.max(0, match.index - 8), match.index + match[0].length + 8)),
+      });
+    }
+  }
+
+  return findings;
+}
+
+function findIntensifierAbuse(proseLines) {
+  let hits = 0;
+  let narrativeChars = 0;
+  let firstLine = null;
+  const samples = [];
+
+  for (const { text, lineNo } of proseLines) {
+    const trimmed = text.trim();
+    if (!trimmed || isDivider(trimmed) || isStructural(trimmed)) continue;
+    const narrative = maskQuoted(trimmed);
+    narrativeChars += visibleLength(narrative);
+
+    INTENSIFIER_PATTERN.lastIndex = 0;
+    let match;
+    while ((match = INTENSIFIER_PATTERN.exec(narrative)) !== null) {
+      hits += 1;
+      if (firstLine === null) firstLine = lineNo;
+      if (samples.length < 8 && !samples.includes(match[0])) samples.push(match[0]);
+    }
+  }
+
+  if (hits < INTENSIFIER_MIN_HITS) return [];
+
+  return [{
+    line: firstLine,
+    column: 1,
+    type: 'intensifier-abuse',
+    severity: 'advisory',
+    message: `极端词过量：叙述里「${samples.join('/')}」等共 ${hits} 处；删九成，程度靠具体画面给（「三天没合眼」代替「非常大的压力」）。`,
+    excerpt: compact(samples.join(' ')),
+  }];
+}
+
+function findCrowdSyncTic(proseLines) {
+  const findings = [];
+  const softCounts = new Map();
+  let softFirstLine = null;
+
+  for (const { text, lineNo } of proseLines) {
+    const trimmed = text.trim();
+    if (!trimmed || isDivider(trimmed) || isStructural(trimmed)) continue;
+    const narrative = maskQuoted(trimmed);
+
+    for (const phrase of CROWD_HARD_SYNC) {
+      let idx = narrative.indexOf(phrase);
+      while (idx !== -1) {
+        findings.push({
+          line: lineNo,
+          column: idx + 1,
+          type: 'crowd-sync-tic',
+          severity: 'advisory',
+          message: `群体同步词「${phrase}」：一群人被写成了一个反应。拆成 3 种以上立场（领头/跟风/尴尬/回避/私语/走神），或指明某一个人做了某个多余的动作。`,
+          excerpt: compact(narrative.slice(Math.max(0, idx - 8), idx + phrase.length + 8)),
+        });
+        idx = narrative.indexOf(phrase, idx + phrase.length);
+      }
+    }
+
+    for (const phrase of CROWD_SOFT_SYNC) {
+      let idx = narrative.indexOf(phrase);
+      while (idx !== -1) {
+        softCounts.set(phrase, (softCounts.get(phrase) || 0) + 1);
+        if (softFirstLine === null) softFirstLine = lineNo;
+        idx = narrative.indexOf(phrase, idx + phrase.length);
+      }
+    }
+  }
+
+  const softTotal = [...softCounts.values()].reduce((sum, n) => sum + n, 0);
+  if (softTotal >= CROWD_SOFT_MIN) {
+    const top = [...softCounts.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([phrase, count]) => `${phrase}×${count}`)
+      .join(' ');
+    findings.push({
+      line: softFirstLine,
+      column: 1,
+      type: 'crowd-sync-tic',
+      severity: 'advisory',
+      message: `群体泛指词过密（${softTotal} 处：${top}）：群众始终是个代词，说明还没拆成具体的人。挑 3 处换成有名有姓、自己有事的角色。`,
+      excerpt: compact(top),
+    });
+  }
+
+  return findings;
+}
+
+function findFilterVerbTic(proseLines) {
+  const findings = [];
+  let total = 0;
+  let narrativeChars = 0;
+  let firstLine = null;
+
+  for (const { text, lineNo } of proseLines) {
+    const trimmed = text.trim();
+    if (!trimmed || isDivider(trimmed) || isStructural(trimmed)) continue;
+    const narrative = maskQuoted(trimmed);
+    narrativeChars += (narrative.match(/[\u4e00-\u9fff]/g) || []).length;
+
+    const distinct = new Set();
+    for (const verb of FILTER_VERBS) {
+      let idx = narrative.indexOf(verb);
+      while (idx !== -1) {
+        distinct.add(verb);
+        total += 1;
+        if (firstLine === null) firstLine = lineNo;
+        idx = narrative.indexOf(verb, idx + verb.length);
+      }
+    }
+
+    // 只数「不同种」——同一动词连续三次（他想起…，想起…，想起…）是排比，是节奏，不是转述腔。
+    if (distinct.size >= FILTER_VERB_PARAGRAPH_MAX) {
+      findings.push({
+        line: lineNo,
+        column: 1,
+        type: 'filter-verb-tic',
+        severity: 'advisory',
+        message: `一段里堆了 ${distinct.size} 种过滤器动词（${[...distinct].join('/')}）：读者被挡在「他看见／他感到」外面一臂远。删掉感知动词，把被感知的东西直接摆出来（见 references/narrative-distance.md）。`,
+        excerpt: compact(narrative.slice(0, 40)),
+      });
+    }
+  }
+
+  if (narrativeChars >= 500) {
+    const density = (total / narrativeChars) * 1000;
+    if (density >= FILTER_VERB_DENSITY_MIN) {
+      findings.push({
+        line: firstLine || 1,
+        column: 1,
+        type: 'filter-verb-tic',
+        severity: 'advisory',
+        message: `过滤器动词密度 ${density.toFixed(1)}/千字（阈值 ${FILTER_VERB_DENSITY_MIN}，正常基线 0.7–1.2）：整章叙述站得太远。至少在情绪转折处把距离收到第 4 档，用人物自己的话去想。`,
+        excerpt: compact(`全章 ${total} 处，叙述 ${narrativeChars} 字`),
+      });
+    }
+  }
+
+  return findings;
+}
+
 function findClicheDensityTic(proseLines) {
   let hits = 0;
   let narrativeChars = 0;
@@ -1684,4 +1910,61 @@ function trimTrailingNoise(text) {
 function compact(text) {
   const normalized = text.replace(/\s+/g, ' ').trim();
   return normalized.length > 80 ? `${normalized.slice(0, 77)}...` : normalized;
+}
+
+// 弱动词分解式（中文原则库「欧化病②」）：全文只报一条，阈值 ≥2 处。
+function findWeakVerbTic(proseLines) {
+  let hits = 0;
+  let firstLine = null;
+  const samples = [];
+  for (const { text, lineNo } of proseLines) {
+    const trimmed = text.trim();
+    if (!trimmed || isDivider(trimmed) || isStructural(trimmed)) continue;
+    // 对话里角色用公文体是 characterization，只扫叙述
+    const narrative = stripQuoted(trimmed);
+    WEAK_VERB_PATTERN.lastIndex = 0;
+    let match;
+    while ((match = WEAK_VERB_PATTERN.exec(narrative)) !== null) {
+      hits += 1;
+      if (firstLine === null) firstLine = lineNo;
+      if (samples.length < 4) samples.push(match[0]);
+    }
+  }
+  if (hits < WEAK_VERB_MIN_HITS) return [];
+  return [{
+    line: firstLine,
+    column: 1,
+    type: 'weak-verb-tic',
+    severity: 'advisory',
+    message: `弱动词分解式 ${hits} 处（欧化病，references/chinese-prose-craft.md 第二节）：「进行/作出/加以+抽象名词」还原为硬动词；对话内角色腔不算。`,
+    excerpt: compact(samples.join(' | ')),
+  }];
+}
+
+// 情绪贴标签（reader-reward 失败模式④）：分布级提示，全文只报一条，阈值 ≥4 处。
+function findEmotionLabelTic(proseLines) {
+  let hits = 0;
+  let firstLine = null;
+  const samples = [];
+  for (const { text, lineNo } of proseLines) {
+    const trimmed = text.trim();
+    if (!trimmed || isDivider(trimmed) || isStructural(trimmed)) continue;
+    const narrative = stripQuoted(trimmed);
+    EMOTION_LABEL_PATTERN.lastIndex = 0;
+    let match;
+    while ((match = EMOTION_LABEL_PATTERN.exec(narrative)) !== null) {
+      hits += 1;
+      if (firstLine === null) firstLine = lineNo;
+      if (samples.length < 4) samples.push(match[0]);
+    }
+  }
+  if (hits < EMOTION_LABEL_MIN_HITS) return [];
+  return [{
+    line: firstLine,
+    column: 1,
+    type: 'emotion-label-tic',
+    severity: 'advisory',
+    message: `情绪贴标签 ${hits} 处（references/reader-reward.md 模式④）：告知情绪而非展示；逐处做删除测试，换成该角色特有的行为细节（注意避开攥拳/咬唇等通用手势）。`,
+    excerpt: compact(samples.join(' | ')),
+  }];
 }

@@ -1,0 +1,9 @@
+# 统一 LF：脚本/文档一律 LF 入库，避免 Windows 下 core.autocrlf 把 .py/.js 变成 CRLF
+# （CRLF 会让 shebang 失效、让 lint 的列号偏移、让跨平台 diff 全是噪声）
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary

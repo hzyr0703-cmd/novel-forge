@@ -96,8 +96,11 @@ def strip_comments(text):
 
 
 def prose_paragraphs(text):
-    """返回正文段列表（去标题/空行/结构行）。"""
+    """返回正文段列表（去标题/空行/结构行/[DRAFT] 等状态标记行）。"""
     text = strip_comments(text)
+    # 状态标记行（如 [DRAFT]、[FINAL]）不是正文；注意有的文件 [DRAFT] 行尾带两个
+    # 空格（markdown 硬换行）会和首段粘在同一段里，必须按行剔除而不是按段剔除。
+    text = re.sub(r"^\s*\[(?:DRAFT|FINAL|草稿|定稿)\][^\n]*$", "", text, flags=re.M)
     out = []
     for para in re.split(r"\n\s*\n", text):
         p = para.strip()
@@ -109,6 +112,23 @@ def prose_paragraphs(text):
             continue
         out.append(p)
     return out
+
+
+# 人物到来开场：首段以「X来/X又来/X敲门/X进门」句式开局，X 为人名。
+ARRIVE_OPEN_RE = re.compile(
+    r"^([\u4e00-\u9fa5]{2,3}?)(?:又来|来敲门|来的时候|敲门的时候|是.{0,6}来的|推门进来|进门|送到|来了"
+    r"|把门[推掩合带]上?|闪进来|挤进来|探头)"
+)
+
+
+def arrival_subject(first_para):
+    """若首段为「人物到来」句式，返回人名；否则返回 None。"""
+    if not first_para:
+        return None
+    m = ARRIVE_OPEN_RE.match(first_para[:20])
+    if m:
+        return m.group(1)
+    return None
 
 
 def classify_opening(first_para):
@@ -130,7 +150,7 @@ def classify_opening(first_para):
 
 
 def classify_ending(last_para):
-    """末段归纳为 动作定格/台词/画面/悬念/心理。"""
+    """末段归纳为 动作定格/台词/画面/悬念/心理/节拍。"""
     if not last_para:
         return "未知"
     tail = last_para.strip()
@@ -146,6 +166,10 @@ def classify_ending(last_para):
             return "动作定格"
         if any(w in head for w in ENV_WORDS + TIME_WORDS):
             return "画面"
+        # 节拍收束：超短末段的否定式/陈述式收尾（「老祝没回来。」「蹭不掉。」）
+        # 没有悬念词但确实有收束感，单列一类避免落「其他」造成结尾同型半误报。
+        if len(re.sub(r"\s", "", tail)) <= 12:
+            return "节拍"
     return "其他"
 
 
@@ -238,11 +262,12 @@ def check_diversity(book_dir, chapters=None):
     if not chs:
         return None
 
-    opens, ends, lens, payoff_types, dlg_styles, nos = [], [], [], [], [], []
+    opens, ends, lens, payoff_types, dlg_styles, nos, arrivals = [], [], [], [], [], [], []
     for c in chs:
         paras = prose_paragraphs(c["text"])
         meta = load_meta(book_dir, c["no"])
         op = meta.get("opening_type") or classify_opening(paras[0] if paras else "")
+        arrivals.append(arrival_subject(paras[0]) if paras else None)
         en = meta.get("ending_type") or classify_ending(paras[-1] if paras else "")
         n = vlen(re.sub(r"\s", "", strip_comments(c["text"])))
         opens.append(op)
@@ -274,7 +299,7 @@ def check_diversity(book_dir, chapters=None):
     n2, v2, i2 = longest_run(ends)
     if n2 >= 3:
         adv.append("第 %d–%d 章连续 %d 章以「%s」结尾 → 结尾方式同型。"
-                   "换一换：动作定格/台词/画面/悬念/心理交替。"
+                   "换一换：动作定格/台词/画面/悬念/心理/节拍交替。"
                    % (nos[i2], nos[i2 + n2 - 1], n2, v2))
 
     # 8.3 章节长度
@@ -302,6 +327,23 @@ def check_diversity(book_dir, chapters=None):
                        "换一换：口癖、重复、答非所问、寒暄；每章至少一句"
                        "「删了不影响剧情」的非功能对话，长短句交替。"
                        % (nos[i5], nos[i5 + n5 - 1], n5, v5))
+
+    # 8.6 人物到来开场：同一人物连续多章用「到来」动作开局（比「其他」同型更细的指纹）
+    # 允许中间夹个别非到来章，用滑动窗口：任意窗口内同人物到来 ≥3 次即提示。
+    win = 5
+    for i in range(len(arrivals) - win + 1):
+        window = arrivals[i:i + win]
+        names = {}
+        for a in window:
+            if a:
+                names[a] = names.get(a, 0) + 1
+        name, cnt = (max(names.items(), key=lambda kv: kv[1]) if names else (None, 0))
+        if cnt >= 3 and name:
+            adv.append("第 %d–%d 章中 %d 次以「%s 到来」开场 → 情报/事件入口单一，"
+                       "读者会看出「又是他来敲门」。让消息换个入口（发现物、传闻、"
+                       "主角主动出门），或换开场型（环境/对白/动作）。"
+                       % (nos[i], nos[i + win - 1], cnt, name))
+            break
 
     return {
         "book": book_dir,

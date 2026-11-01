@@ -83,7 +83,10 @@ def strip_comments(text):
 
 
 def strip_markdown_scaffold(text):
-    """去标题、分隔线、frontmatter，只留散文正文。"""
+    """去标题、分隔线、frontmatter、状态标记行，只留散文正文。"""
+    # [DRAFT]/[FINAL] 等状态标记行不是正文；行尾带 markdown 硬换行空格时
+    # 会与下一行粘在一起，必须按行剔除（与 check-cross-diversity 同款修法）。
+    text = re.sub(r"^\s*\[(?:DRAFT|FINAL|草稿|定稿)\][^\n]*$", "", text, flags=re.M)
     out = []
     in_fm = False
     for i, raw in enumerate(text.splitlines()):
