@@ -4,6 +4,14 @@
 > 详细的翻车原理见 `references/pitfalls.md` P1–P31（v3.1 起自 SKILL.md 第十四节迁出），此处只留版本脉络。
 > **版本号三处必须同步**：本文件首个 `## vX.Y` / `SKILL.md` frontmatter `version` / git commit 标题。
 
+## v4.5.1
+
+> 主题：**全库体检修正**——SKILL.md 路由统计口径纠偏：「上表 18 份约 15.6 万字」
+> 为历史漂移值，实测路由表实际覆盖 28 份 references 文档、合计约 13.6 万字
+> （2000 字正文的 68 倍）；版本三处同步。另：references 三个次要文档
+> （consistency-judge/crossrepeat/quality-rubric）不经路由表、由脚本与
+> crossrepeat.md 引用，属正常分工，不改动。
+
 ## v4.5
 
 > 主题：**对话层手法卡补池（手法池饱和）**——五本对标书卷一对话工艺精读拆解
