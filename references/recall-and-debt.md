@@ -23,16 +23,16 @@
 ## 二、三个脚本，一条铁律
 
 ```bash
-$S = ~/.workbuddy/skills/novel-forge/scripts
+$S = ~/workspace/custom-skills/novel-forge/scripts
 
 # 1) 重建检索索引（台账或正文有变动时）
-python $S/recall.py --project <书稿根> index
+python3 $S/recall.py --project <书稿根> index
 
 # 2) 看本章该还哪几笔债
-python $S/debt.py --project <书稿根> due --within 3
+python3 $S/debt.py --project <书稿根> due --within 3
 
 # 3) 按本章要素检索前文
-python $S/recall.py --project <书稿根> query "老王 那封信 签名" --top 6
+python3 $S/recall.py --project <书稿根> query "老王 那封信 签名" --top 6
 ```
 
 **铁律：<u>这两个脚本不产生任何真源状态。</u>**
@@ -103,9 +103,9 @@ python $S/recall.py --project <书稿根> query "老王 那封信 签名" --top 
 ### 其他子命令
 
 ```bash
-python $S/debt.py --project <书稿根> status           # 全部债务，按紧迫度排序
-python $S/debt.py --project <书稿根> reveal           # 真相揭示节奏体检
-python $S/debt.py --project <书稿根> due --json       # 机器可读
+python3 $S/debt.py --project <书稿根> status           # 全部债务，按紧迫度排序
+python3 $S/debt.py --project <书稿根> reveal           # 真相揭示节奏体检
+python3 $S/debt.py --project <书稿根> due --json       # 机器可读
 ```
 
 `reveal` 专查一件事：**待揭示真相积压**。  
@@ -172,9 +172,9 @@ BM25 粗排  →  向量精排  →  rerank 定稿
 ```
 
 ```bash
-python $S/recall.py --project <书稿根> aliases            # 看当前生效的族
-python $S/recall.py --project <书稿根> query "碑 谁刻的" --top 6
-python $S/recall.py --project <书稿根> query "碑" --no-alias  # 排查「为什么召回了这条」
+python3 $S/recall.py --project <书稿根> aliases            # 看当前生效的族
+python3 $S/recall.py --project <书稿根> query "碑 谁刻的" --top 6
+python3 $S/recall.py --project <书稿根> query "碑" --no-alias  # 排查「为什么召回了这条」
 ```
 
 **三条纪律**（都是踩过的）：
@@ -208,8 +208,8 @@ RERANK_MODEL=rerank
 然后重建索引：
 
 ```bash
-python $S/recall.py --project <书稿根> index
-python $S/recall.py --project <书稿根> status   # 确认模式是 hybrid
+python3 $S/recall.py --project <书稿根> index
+python3 $S/recall.py --project <书稿根> status   # 确认模式是 hybrid
 ```
 
 #### 配置项全表
@@ -301,7 +301,7 @@ EMBED_MODEL=Qwen/Qwen3-Embedding-8B
 EMBED_API_KEY=你的key
 ```
 
-然后 `python $S/recall.py --project <书稿根> index` 重建。  
+然后 `python3 $S/recall.py --project <书稿根> index` 重建。  
 **注意**：配了向量层后，小说正文会发到该embedding 端点。  
 介意就保持 BM25。
 
@@ -311,13 +311,13 @@ EMBED_API_KEY=你的key
 
 ```bash
 # 写新角色出场前
-python $S/recall.py --project <书稿根> query "新角色名" --kind character --kind timeline
+python3 $S/recall.py --project <书稿根> query "新角色名" --kind character --kind timeline
 
 # 回收伏笔前
-python $S/recall.py --project <书稿根> query "F001 那封信" --kind foreshadow --kind chapter
+python3 $S/recall.py --project <书稿根> query "F001 那封信" --kind foreshadow --kind chapter
 
 # 推进主线前，只看真相
-python $S/recall.py --project <书稿根> query "转让协议" --kind timeline
+python3 $S/recall.py --project <书稿根> query "转让协议" --kind timeline
 ```
 
 ---
@@ -380,7 +380,7 @@ GLM-5.3 / GLM-5.3-Flash 都有 **1M 上下文**，这让"全书塞进去"从不�
 - 临界点约 **500 章**（单章 2,000 token × 500 ≈ 1M），超过就必须切召回
 - 你的目标 600 章超出临界点 100 章，**检索层是必需品**
 
-复跑：`python scripts/bench_context_cost.py --chars 3000000 --chapters 1200`
+复跑：`python3 scripts/bench_context_cost.py --chars 3000000 --chapters 1200`
 
 ### 性能
 
@@ -422,7 +422,7 @@ GLM-5.3 / GLM-5.3-Flash 都有 **1M 上下文**，这让"全书塞进去"从不�
 | 改写组（零重叠） | **2/5 = 40%** | 中 1 条漏检、命中的第 1 /第 3 位 |
 | 章节号定位 | **3/3 = 100%** | 全部第 1 位（+1000 置顶生效） |
 
-复跑：`python scripts/bench_bm25.py --ch 900`
+复跑：`python3 scripts/bench_bm25.py --ch 900`
 
 **判读**：章节号定位和词面检索 BM25 已经满分，缺口**只出现在"换个说法问"**这件事上。
 缺口约 60%，正是向量层要补的部分。所以：
@@ -516,7 +516,7 @@ GLM-5.3 / GLM-5.3-Flash 都有 **1M 上下文**，这让"全书塞进去"从不�
 改 schema 后务必跑一遍回归测试：
 
 ```bash
-python scripts/test_schema_compat.py
+python3 scripts/test_schema_compat.py
 ```
 
 它用两套等价台账交叉验证召回 kind 分布、条目内容、债务紧迫度必须完全一致。

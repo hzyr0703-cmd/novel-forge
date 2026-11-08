@@ -5,7 +5,7 @@
 ## 检查方法
 
 ```bash
-python ~/.workbuddy/skills/novel-forge/scripts/check_environment.py
+python3 ~/workspace/custom-skills/novel-forge/scripts/check_environment.py
 ```
 
 - 退出码 0 + `"status": "ready"`：环境就绪，直接使用，无需读本文件其余部分。
@@ -17,7 +17,7 @@ python ~/.workbuddy/skills/novel-forge/scripts/check_environment.py
 2. 文档：https://docs.python.org/3/using/windows.html
 3. 下载：https://www.python.org/downloads/ （Windows 安装包）
 4. 安装时勾选 **Add python.exe to PATH**，重开终端使 PATH 生效
-5. 验证：`python --version` 输出 ≥ 3.10；`python scripts/check_environment.py` 返回 ready
+5. 验证：`python --version` 输出 ≥ 3.10；`python3 scripts/check_environment.py` 返回 ready
 
 安全说明：仅使用官方安装包；本技能脚本不读写凭据、不访问网络。
 
@@ -26,7 +26,7 @@ python ~/.workbuddy/skills/novel-forge/scripts/check_environment.py
 1. 官方入口：https://nodejs.org/
 2. 下载：https://nodejs.org/en/download （LTS 版本即可）
 3. 安装后**重开终端**使 PATH 生效
-4. 验证：`node --version` 输出 ≥ v18；`python scripts/check_environment.py` 返回 ready
+4. 验证：`node --version` 输出 ≥ v18；`python3 scripts/check_environment.py` 返回 ready
 
 安全说明：仅使用官方安装包；lint 脚本只读写项目内正文文件，不访问网络。
 

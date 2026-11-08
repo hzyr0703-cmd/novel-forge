@@ -1,7 +1,7 @@
 ---
 name: novel-forge
 version: 4.5.1
-description: "中文网文长篇写作引擎：先算后写（15维选题打分→卷纲细纲→分层正文初稿/定稿/导出→去AI味门禁），含对标书拆解、旧书冷启动导入、长篇连续性台账（伏笔/时间线/人设）、改稿换位盲评与细纲兑现核对、出版与IP评估。何时用：用户要写或改中文网络小说；给题材想法、书名、草稿章节、后台数据，问能不能爆、为什么扑街、怎么救盘；要把旧稿接进追踪体系；要拆对标书建剧情模块库；要判断两版改稿哪版更强；要核验细纲情节点有没有落地。常见说法：写小说、写网文、开书、写文、码字、构思题材、写大纲、出卷纲、写细纲、卡文了想不出接下来怎么写、伏笔忘了怎么回收、人物OOC、这章太AI了、去AI味、过审、黄金三章怎么写、开篇怎么写、取书名、写简介、配标签、书测怎么选、数据不好怎么救、正文导出、导入我的旧书、拆这本书、建对标库、这两版哪版好、改前改后对比、细纲写的东西正文有没有写到。何时不用：非虚构写作（论文/公众号/商业报告）、单句润色、单点创作请求（角色对话片段、剧情反转点子、世界观设定问答直接回答即可）、非中文语种。平台默认番茄小说，起点/晋江/七猫/知乎盐言需调整包装与节奏口径。"  
+description: "中文网文长篇写作引擎：先算后写（15维选题打分→卷纲细纲→分层正文初稿/定稿/导出→去AI味门禁），含对标书拆解、旧书冷启动导入、长篇连续性台账（伏笔/时间线/人设）、改稿换位盲评与细纲兑现核对、出版与IP评估。何时用：用户要写或改中文网络小说；给题材想法、书名、草稿章节、后台数据，问能不能爆、为什么扑街、怎么救盘；要把旧稿接进追踪体系；要拆对标书建剧情模块库；要判断两版改稿哪版更强；要核验细纲情节点有没有落地。常见说法：写小说、写网文、开书、写文、码字、构思题材、写大纲、出卷纲、写细纲、卡文了想不出接下来怎么写、伏笔忘了怎么回收、人物OOC、这章太AI了、去AI味、过审、黄金三章怎么写、开篇怎么写、取书名、写简介、配标签、书测怎么选、数据不好怎么救、正文导出、导入我的旧书、拆这本书、建对标库、这两版哪版好、改前改后对比、细纲写的东西正文有没有写到。何时不用：非虚构写作（论文/公众号/商业报告）、单句润色、单点创作请求（角色对话片段、剧情反转点子、世界观设定问答直接回答即可）、非中文语种。平台未指定时暂按番茄小说口径推进、并标注为待确认项（口径分档见第三节），起点/晋江/七猫/知乎盐言需调整包装与节奏口径。"  
 agent_created: true
 ---
 
@@ -25,10 +25,11 @@ agent_created: true
 > 感官、回报、温度全当 blocking，模型为了过门禁开始「填格子」——每章硬塞感官、硬凑爽点，
 > 正文反而越来越像机器。这条反直觉但实测成立（详见第十四节 P18，全文 `references/pitfalls.md`）。
 >
-> **但「四条」只数规格层，不是全部 blocking**：lint 侧另有 8 条 blocking（7 条句式/标点模板
-> ＋ 1 条词族位置规则 `hard-banned-word`，突变起跳与程度副词都归它），平台合规再算 1 类。
-> 合起来 gate 一共 **13 条 blocking**（第六节有逐条清单）。说「只有四条」会让人低估门禁——
-> 这是 v2.8 修正的一处失实。
+> **但「四条」只数规格层，不是全部 blocking**：规格层的「AI 味」一行就是 lint 8 类的
+> 汇总入口（无条件 7 类：词族位置规则 `hard-banned-word` + 4 条禁止句式 + 2 条章尾预告；
+> 条件 1 类：`em-dash`），不是另一批规则；平台合规再算 1 类。去重后 gate 的 blocking
+> 共 **12 类**：规格自有 3（字数 / 段长 / 章末钩子）+ lint 8 + 平台 1（第六节有逐条清单）。
+> 旧「13 条」把 AI 味重复数了一遍，已纠正（本地修订 2026-11-06）；只说「四条」同样会让人低估门禁。
 
 ## 二、流水线
 
@@ -43,13 +44,12 @@ agent_created: true
 | 6 | 写细纲：每章一份，含字数目标 + 情节点 | `forge.py gate --stage outline` |
 | **7–10** | **写章循环**：初稿 → 去 AI 味 → 跨章校验 → 平台合规（命令级序列见第八节，别另起炉灶） | `forge.py gate --stage draft` 退出码 0；跨章与平台两项**不可** `--skip-*` 绕过 |
 | 11 | 语义级审稿：三轮视角（读者/编辑/对家，第十一节）——话疗（BOSS 禁止被说服）+ 叙事循环在编辑轮执行；可选 `llm_review.py --coverage`（细纲兑现）/`--pair`（换位盲评）打前站 | `anti-pattern-checklist.md` |
-| 12 | 定稿层（人重写）：用自己的语言重述，保留情节/爽点/钩子，写入 `正文/final/`（≥60% 句子人工重写） | `forge.py gate --stage final` |
+| 12 | 定稿层：写入 `正文/final/`，双模式二选一并在 meta 标注 `final_mode`——**人工重写**（用自己的语言重述，保留情节/爽点/钩子，去 AI 指纹最有效，推荐）或 **AI 定稿**（模型逐句编辑级修订，须全部门禁 + 第十一节审稿清单全过）。不再设重写百分比门槛：比例无法机检，假门槛不如真流程（本地修订 2026-11-06） | `forge.py gate --stage final` 退出码 0 + 审稿清单全过 |
 | 13 | 导出层：`export.py` 从 `final/` 剥离全部注释与工程词写入 `导出/`，校验通过才交付 | `forge.py export` 退出码 0 |
 | 14 | 提交状态：写回追踪，派生视图由脚本重渲染 | `tracking_commit.py check` |
 
 > **v2.0 正文三层**：`正文/draft/`（skill 初稿，标 `[DRAFT]`，不导出）→ `正文/final/`
-> （人重写定稿，导出源）→ `导出/`（只交付这个，零元数据零注释）。skill 做工程，
-> 人做创作——这是降低 AI 指纹最有效的一步。声明块（温度/爽点/回报/章中/钩子型号）
+> （定稿，导出源；人工重写或 AI 定稿，模式标注在 meta 的 `final_mode`）→ `导出/`（只交付这个，零元数据零注释）。人工重写仍是降低 AI 指纹最有效的一步，但只作推荐、不设比例硬门槛（本地修订 2026-11-06，见第九节）。声明块（温度/爽点/回报/章中/钩子型号）
 > 一律进 `meta/第N章.json`，正文文件一个字都不放（见第六节）。
 >
 > 第一次建书或换平台时，先照 `examples/minimal-book/` 跑一遍——那是可运行的门禁样板，  
@@ -61,22 +61,22 @@ agent_created: true
 N 章，更早的事实由 recall.py 检索层承接，不重建全量台账：
 
 ```bash
-S=~/.workbuddy/skills/novel-forge/scripts
+S=~/workspace/custom-skills/novel-forge/scripts
 # 1) 脚本侧：盘点（章号/断号/字数）+ 本书文风基线 + 回填清单 + init 预填单
-python $S/import_manuscript.py prepare --project <书目录> --source <原稿目录|单文件> [--recent 20]
+python3 $S/import_manuscript.py prepare --project <书目录> --source <原稿目录|单文件> [--recent 20]
 # 2) 模型侧：按 .story/import/回填章节清单.md 精读近 20 章，填 init-skeleton.json
 #    （八步协议见 .story/import/init-填写说明.md）
 # 3) 提交与校验：
-python $S/tracking_commit.py init --project <书目录> --input .story/import/init-skeleton.json
-python $S/import_manuscript.py verify --project <书目录>   # TODO 残留/章号对齐/悬置线拦截
-python $S/forge.py truth --book <书目录> && python $S/recall.py index --project <书目录>
+python3 $S/tracking_commit.py init --project <书目录> --input .story/import/init-skeleton.json
+python3 $S/import_manuscript.py verify --project <书目录>   # TODO 残留/章号对齐/悬置线拦截
+python3 $S/forge.py truth --book <书目录> && python3 $S/recall.py index --project <书目录>
 ```
 
 **对标书拆文**（建剧情模块库）——脚本管统计，模型管语义：
 
 ```bash
 # 确定性层：文风基线.json + 文风.md + 拆文报告.md（含语义层待办清单）
-python $S/analyze_book.py --book <对标书目录> --out <书目录>/对标/<书名>
+python3 $S/analyze_book.py --book <对标书目录> --out <书目录>/对标/<书名>
 # 语义层（角色卡/剧情线/金手指/爽点抽样）：references/book-teardown.md 七步待办
 ```
 
@@ -87,19 +87,26 @@ prepare 生成）——「像不像这一本」比「像不像人类」灵敏；
 
 ## 三、默认假设基线
 
-信息缺失时按此补齐，并在交付首行标注「本次假设：…」：
+信息缺失时按此补齐，并在交付首行标注「本次假设：…」。但假设分两档：低风险的直接默认；定错了要大返工的列为确认项，不许一声不吭替用户定死。（本地修订 2026-11-06）
 
-- 未指定频道 → 男频默认「都市脑洞」，女频默认「现言脑洞」
-- 未指定篇幅 → 男频 150 万字 / 女频 100 万字
-- 未指定日更 → 6000 字/天（首秀期最低线）
-- 未指定视角 → 第一人称受限（代入感最强）
-- 未指定文风 → 按赛道自动匹配（见 `references/style-*.md`），默认「冷硬都市」
-- 未指定CP → 男频单女主或无女主，女频 1V1双洁
-- 未指定平台 → 番茄主站（免费 + 广告分成）
-- 未指定情绪 → 男频「爽 + 优越感」，女频「甜 + 爽」
+**可直接默认（低风险，随时可改）**
+
+- 未指定文风 → 按赛道自动匹配（见 `references/style-*.md`），匹配不上时默认「冷硬都市」
+- 未指定情绪 → 按频道惯例：男频「爽 + 优越感」，女频「甜 + 爽」；频道未定时按题材本身的气质定，不预设
 - 未指定书长节奏 → 单章 1800–3200 字，首章 1500–2000
+- 未指定日更 → 按项目产能排期，不套固定值；6000 字/天只是番茄首秀期的参考线，只在项目明确处于首秀期时适用
 
-**零问开工**：用户给一句话（题材/梗/书名/草稿/后台数据）即开工，禁止先问一堆问题。
+**须确认（高返工成本：定了就贯穿全书）**
+
+以下各项先按暂定值推进，同时在交付首行醒目标注，并可用一个合并问题一次问清（最多 1–2 个问题，不许连环盘问）；用户回一句即可推翻，不阻塞开工：
+
+- 频道与赛道 → 先从用户给的题材/梗本身推断（男频都市向常见落点是都市脑洞、女频现言向常见落点是现言脑洞，那是推断参考，不是默认）；频道未定时不许硬套某一频，推断不出才问
+- 未指定篇幅 → 以当前项目既定目标为准（项目定了多少字就是多少字）；项目未定目标时，总纲阶段按题材体量给建议值并标注假设，不套男频 150 万 / 女频 100 万的固定数
+- 未指定视角 → 暂定第三人称受限（长篇主流，群像与信息差都放得开）；第一人称只在悬疑 / 怪谈 / 盐言短篇等明确适合的题材里建议，且必须经用户确认才用，不作默认
+- 未指定 CP → 暂按题材惯例给（男频单女主或无女主、女频 1V1 是常见落点）；但双洁、无 CP、多女主等取向差异大，列入合并问题确认，不预设
+- 未指定平台 → 暂按番茄主站口径（免费 + 广告分成）做包装与节奏，其他平台按 `platform-adaptation.md` 调整；用户已明确平台时以用户为准
+
+**开工纪律**：用户给一句话（题材/梗/书名/草稿/后台数据）即开工，禁止先问一堆问题；唯一的例外是上面的合并确认问题——它与首交付同时给出，按暂定值先写，不许等答复才动笔。
 
 **文风基线可选值**（v2.0 新增，按赛道匹配，用户可显式覆盖）：
 
@@ -123,7 +130,7 @@ prepare 生成）——「像不像这一本」比「像不像人类」灵敏；
 
 **任何创建或修改正文的动作前，先读本节。只读本文件不算完成。**
 
-按当前时刻读对应 reference，**读完整份，不做局部摘读**：
+按当前时刻读对应 reference。**分级读取**（本地修订 2026-11-06）：普通篇幅（约 1.5 万字以内）读完整份、不做局部摘读；超长文档（`bench-craft.md` 约 3.8 万字、`recall-and-debt.md` 等）按节摘读——先读其纪律/目录部分，再读与本章场景类型对应的章节，并在技术备注中标明读了哪几节。与本章直接相关的节漏读，仍算未读完：
 
 | 时刻                            | 必读                                  |
 | ----------------------------- | ----------------------------------- |
@@ -159,64 +166,64 @@ prepare 生成）——「像不像这一本」比「像不像人类」灵敏；
 
 **交付前逐项复核**：字数带外按收口流程交用户处置，不自动补字；其余项越界不算完成。
 
-任一必需路径不存在或未读完时立即停止，报告准确路径，**不得先写正文再补读**。
+任一必需路径不存在、或按上面的分级口径应读的部分未读完时立即停止，报告准确路径，**不得先写正文再补读**。
 
 ## 五、门禁（WorkBuddy 环境下的执行方式）
 
 oh-story 原设计依赖 Claude Code 的 hook 系统与 7 个专职 agent，WorkBuddy 两者皆无。  
 **门禁语义由 `forge.py` 子命令显式调用补齐**，每次写正文前必须实跑，不得跳过。
 
-**运行环境**：本技能脚本依赖 Python ≥ 3.10 与 Node ≥ 18。首次使用或换机后先跑 `python $S/check_environment.py`，输出 `unavailable` 时按 `references/setup-guide.md` 补齐后再继续——环境不可用时禁止绕过门禁直接写正文。
+**运行环境**：本技能脚本依赖 Python ≥ 3.10 与 Node ≥ 18。首次使用或换机后先跑 `python3 $S/check_environment.py`，输出 `unavailable` 时按 `references/setup-guide.md` 补齐后再继续——环境不可用时禁止绕过门禁直接写正文。（本地适配 2026-11-06：本机安装路径为 `~/workspace/custom-skills/novel-forge`，解释器命令为 `python3`；上游 WorkBuddy 的路径与 `python` 命令已在本文档及相关文档中全局替换，换平台使用时改回对应路径即可。）
 
 ```bash
-S=~/.workbuddy/skills/novel-forge/scripts
+S=~/workspace/custom-skills/novel-forge/scripts
 
 # 细纲门禁 + 连续性门禁（写正文前）
-python $S/forge.py gate --book <书目录> --chapter N --stage outline
+python3 $S/forge.py gate --book <书目录> --chapter N --stage outline
 
 # 初稿层门禁（写完初稿，查 正文/draft/）
-python $S/forge.py gate --book <书目录> --chapter N --stage draft
+python3 $S/forge.py gate --book <书目录> --chapter N --stage draft
 
-# 定稿层门禁（人工重写后，查 正文/final/，交付前跑）
-python $S/forge.py gate --book <书目录> --chapter N --stage final
+# 定稿层门禁（定稿后，查 正文/final/，交付前跑）
+python3 $S/forge.py gate --book <书目录> --chapter N --stage final
 
 # 交付前全检：draft + final 两层都查（v2.8 起；旧版 all 是 draft 的别名，
 # 交付检查实际只查了初稿层，定稿层可能一次门禁都没跑过）
-python $S/forge.py gate --book <书目录> --chapter N --stage all
+python3 $S/forge.py gate --book <书目录> --chapter N --stage all
 
 # 换平台：字数带与钩子间隔随平台变（fanqie 默认 / qidian / qimao / yanyan，也认中文名）
-python $S/forge.py gate --book <书目录> --chapter N --stage final --platform qidian
+python3 $S/forge.py gate --book <书目录> --chapter N --stage final --platform qidian
 
 # 双时间线一致性（每章写完）
-python $S/forge.py truth --book <书目录>
+python3 $S/forge.py truth --book <书目录>
 
 # 跨章自我复述 + 事实冲突（gate 已默认包含，以下为单独排查用）
-python $S/check-crossrepeat.py --book <书目录>
-python $S/check-factconflicts.py --book <书目录>
+python3 $S/check-crossrepeat.py --book <书目录>
+python3 $S/check-factconflicts.py --book <书目录>
 
 # 跨章复述三档工作流（v2.4.1 起）：
 #   日常（每章提交后）：增量模式，只查新章对全历史，~0.2s/章
-python $S/check-crossrepeat.py --book <书目录> --since <上一章号>
+python3 $S/check-crossrepeat.py --book <书目录> --since <上一章号>
 #   里程碑（每 100 章）：全量扫（>40 章自动启用 banding 剪枝，判定逻辑不变）
-python $S/check-crossrepeat.py --book <书目录>
+python3 $S/check-crossrepeat.py --book <书目录>
 #   排查疑点：强制不剪枝的原始全量
-python $S/check-crossrepeat.py --book <书目录> --no-banding
+python3 $S/check-crossrepeat.py --book <书目录> --no-banding
 
 # 平台合规（meta 混入 + 站外导流，gate 已默认包含，以下为单独排查用）
-python $S/check-platform-compliance.py --book <书目录>
-python $S/check-platform-compliance.py --file 正文/draft/第N章.md
+python3 $S/check-platform-compliance.py --book <书目录>
+python3 $S/check-platform-compliance.py --file 正文/draft/第N章.md
 
 # 调试期可临时跳过全书级检查（正式交付勿用）
-python $S/forge.py gate --book <书目录> --chapter N --skip-cross --skip-fact --skip-platform
+python3 $S/forge.py gate --book <书目录> --chapter N --skip-cross --skip-fact --skip-platform
 
 # 15 维命中率复核（动笔前）
-python $S/forge.py hitrate --file 命中卡.md
+python3 $S/forge.py hitrate --file 命中卡.md
 
 # 单章规格明细（想单独看哪项超标时；默认查 draft 层）
-python $S/spec_check.py --file 正文/draft/第N章.md [--platform qidian]
+python3 $S/spec_check.py --file 正文/draft/第N章.md [--platform qidian]
 
 # 字数口径
-python $S/forge.py wordcount --file 正文/draft/第N章.md --target 2300
+python3 $S/forge.py wordcount --file 正文/draft/第N章.md --target 2300
 ```
 
 **`--stage` 取值**：`outline`（只查细纲）| `draft`（查 `正文/draft/`，默认层）|
@@ -267,24 +274,25 @@ AI 味、跨章复述、事实冲突、段长与平台无关，一律不动。�
 | 单章字数 | 1800–3200（`--platform` 可换平台带宽） | blocking |
 | **首章字数** | **1500–2000**（首章另有一套更严口径，别按 3200 写到 2500） | blocking |
 | 段落长度 | ≤ 90 字；**每章允许 1 段放到 120 字**，>120 或第 2 段长段一律 blocking | blocking |
-| AI 味 | = 0（仅指 `check-ai-patterns.js` 的 blocking 项清零：1 条词族位置规则 + 5 条禁止句式 + 1 条条件破折号 + 2 条章尾预告；密度约束、分布级、中文腔均为 advisory，不进退出码） | blocking |
+| AI 味 | = 0（此行是 lint 层 8 类的汇总入口：词族位置规则 1 + 禁止句式 4 + 章尾预告 2 + 条件破折号 1，清零才算过；密度约束、分布级、中文腔均为 advisory，不进退出码） | blocking |
 | 章末钩子 | 必须存在（不强制标型号） | blocking |
 
 > **首章为什么要单列**：`spec_check.py` 用 `--first-chapter` 走另一套带宽（1500–2000），
 > 而本表此前只写 1800–3200。按表写到 2500 字＝表说合格、机检判死，实测为此返工过 4 轮
 > （第 1 章从 2370 删到 1993）。gate 在 `--chapter 1` 时自动切首章口径，不必手动加参数。
 
-上面 5 行是**规格层**的 blocking（首章与常规字数同属「字数」一条规则的两档带宽，故为 4 条规则）。
-gate 的完整 blocking 面是 **13 条**，另外 9 条在别处：
+上面 5 行是**规格层**的 blocking（首章与常规字数同属「字数」一条规则的两档带宽，故为 4 条规则）；
+其中「AI 味」一行与下表 lint 层是同一批规则，只汇总、不另计。gate 去重后的完整 blocking 面是 **12 类**：
 
 | 来源 | 条数 | 逐条 |
 |---|---:|---|
-| 规格层（本表，`spec_check.py`） | 4 | 字数（含首章带宽）/ 段长 / AI 味 / 章末钩子 |
+| 规格层（本表，`spec_check.py`） | 3 | 字数（含首章带宽）/ 段长 / 章末钩子（「AI 味」行见 lint 层，不重复计） |
 | lint 层（`check-ai-patterns.js`） | 8 | `hard-banned-word`（词族位置规则）/ `not-is-comparison` / `reverse-not-is` / `voice-contrast` / `negation-parade` / `em-dash`（条件） / `trailer-ending` / `trailer-summary` |
 | 平台层（`check-platform-compliance.py`） | 1 类 | meta 混入 / 站外导流 / 审核敏感形态 |
 
 > 类型名以 `node scripts/check-ai-patterns.js --list-review-classes` 为准（28 类中 8 条 blocking）。
-> 说「blocking 只有四条」是 v2.8 前的失实说法——它只数了规格层，把 lint 与平台两层漏掉了。
+> 合计 3 + 8 + 1 = 12 类。旧版「13 条」把规格层的 AI 味汇总行与 lint 8 类重复计算，已纠正
+> （本地修订 2026-11-06）；说「只有四条」同样失实——那只数了规格层的表面行数。
 
 **advisory 不是一个整体：先看 `category`，再决定改不改（v3.0）**
 
@@ -323,7 +331,7 @@ gate 的完整 blocking 面是 **13 条**，另外 9 条在别处：
 
 ```bash
 # 单看规格明细（写完正文想自查时用；默认查 draft 层）
-python $S/spec_check.py --file 正文/draft/第N章.md [--first-chapter] [--prev 追踪/_spec-state.json]
+python3 $S/spec_check.py --file 正文/draft/第N章.md [--first-chapter] [--prev 追踪/_spec-state.json]
 # 定稿层自查：把路径换成 正文/final/第N章.md 即可
 # 输出分两块：[阻断]（必须清零）与 [建议]（逐条判断）；末尾汇报 blocking / advisory 计数
 
@@ -392,6 +400,10 @@ blocking——违背它们不会被门禁拦，但正文会「对而乏味」，
    但选择不拆」——环境铺陈、心理闪回、场景过渡都是自然落点。这一段走第六节的豁免带
    （91–120 字、每章 1 段；第 2 段起与 >120 字都判 blocking）。全部 30 字以内的短段，
    分布上会显得过于均匀（人类基线段长 p90=66.5 / p99=107.8）。
+8. **每场至少一个可核查的具体物**（本地修订 2026-11-06）：数字、价格、时间点、
+   物件名、专名。五感管「感觉像真的」，具体物管「颗粒度像真的」——「豪华的办公室」
+   是形容，「报价单停在 47 万那一行」才是场景。抽象表述扎堆的段落，优先换具体物，
+   不换形容词。advisory，不设机检配额（防凑数）。
 
 > 分布级检测见 `scripts/check-distribution.py`（句长/段长分布、长句/长段存在性、
 > 对话波动/信息密度/伏笔间隔，全部 advisory）；跨章多样性（含对话风格）见
@@ -517,6 +529,10 @@ blocking——违背它们不会被门禁拦，但正文会「对而乏味」，
 0. recall.py index            ← 重建派生检索索引（台账或正文有变动时）
 1. gate --stage outline        ← 硬门禁：细纲不存在则退出 1
 2. 读本章细纲 + 卷纲 + 上下文卡（含双时间线防剧透 + 素材库）+ 文风基线
+   声线锚点（本地修订 2026-11-06）：紧接着读「上一章定稿的最后约 600 字」实文，
+   有对标书时再加读对标片段一段——基线是统计数字，锚点是活的句子；写正文前
+   最后进上下文的必须是实文、不是规则，声线靠贴着实文写才稳，靠背参数稳不住
+   （首章无上一章时只读对标片段；两者皆无时跳过此项，不阻断）
 3. debt.py due                ← 本章该偿哪几笔债（含紧迫度与处理建议）
 4. recall.py query "<本章要素>" ← 按本章场景检索前文事实，捞回该想起的设定与伏笔
                                 （命中 追踪/aliases.json 或角色 aliases 时自动扩整族，
@@ -527,17 +543,21 @@ blocking——违背它们不会被门禁拦，但正文会「对而乏味」，
      非功能对话；再问两句——整章有没有一个长句（铺陈/回忆/情绪漫上来处）？
      有没有一段长段（91–120 字豁免带）？**两个都为 0 才回补，别按百分比凑数。**
      缺哪项补哪项——advisory 不拦机器，但写的时候就要落地，不能只靠人兜底
+5.6 冷读一遍（本地修订 2026-11-06）：初稿写完先别跑任何检查，以读者身份从头
+     通读一遍、不许边读边改，只标三处——最想跳过的一段、最假的一句对话、
+     最没画面感的一处。先改这三处，再进第 6 步。机器查得出 AI 词，查不出「平」；
+     这三处就是本章的「平」所在。advisory，不进退出码
 6. 温度/爽点/回报/章中/钩子型号 → 写入 meta/第N章.json（v2.0 起不进正文）
 7. node $S/normalize-punctuation.js  ← 先归一标点，否则 lint 位置漂移
 8. node $S/check-degeneration.js      ← 退化必须为 0，否则重生成该章
 9. node $S/check-ai-patterns.js       ← blocking 清零，advisory 逐条判断
-10. python $S/spec_check.py --file 正文/draft/第N章.md  ← blocking 清零；advisory 清单逐条判断
-11. python $S/check-distribution.py    ← 分布级检测（advisory，人审前先看）
-12. python $S/check-cross-diversity.py ← 跨章开头/结尾/长度/爽点多样性（advisory）
-13. python $S/forge.py gate --stage draft ← 完整门禁（lint + 规格 + 跨章复述 + 事实冲突 + 平台合规）
+10. python3 $S/spec_check.py --file 正文/draft/第N章.md  ← blocking 清零；advisory 清单逐条判断
+11. python3 $S/check-distribution.py    ← 分布级检测（advisory，人审前先看）
+12. python3 $S/check-cross-diversity.py ← 跨章开头/结尾/长度/爽点多样性（advisory）
+13. python3 $S/forge.py gate --stage draft ← 完整门禁（lint + 规格 + 跨章复述 + 事实冲突 + 平台合规）
 14. 按 references/anti-pattern-checklist.md 审稿 ← 话疗/循环模式（模型执行，advisory）
-15. 人工审稿清单逐条答「是」（第十一节）→ 定稿层重写 → 正文/final/
-16. python $S/export.py → 导出/第N章.md  ← 零元数据交付文件
+15. 人工审稿清单逐条答「是」（第十一节）→ 定稿（人工重写或 AI 编辑级定稿，meta 标注 final_mode）→ 正文/final/
+16. python3 $S/export.py → 导出/第N章.md  ← 零元数据交付文件
 17. tracking_commit.py commit         ← 写回追踪，派生视图自动重渲染
 18. 追加爆款命中卡 / 算法对齐卡       ← 每份交付尾部附
 ```
@@ -545,8 +565,7 @@ blocking——违背它们不会被门禁拦，但正文会「对而乏味」，
 **第 3、4 步是写章前的强制动作，不是可选优化。** 详见 `references/recall-and-debt.md`——  
 没有它们，AI 写第 30 章会"忘了"第 3 章埋的线，这是长篇崩盘的头号原因。
 
-**第 15 步是 v2.0 最关键的改动**：skill 产出的是初稿，人用自己的语言重述一遍（≥60%
-句子重写）才能进定稿层。无论元数据怎么处理，AI 直出的正文本身才是最大的指纹来源。
+**第 15 步是定稿的关键**：定稿双模式——人工重写（人用自己的语言重述，去 AI 指纹最有效，推荐）；或 AI 定稿（模型逐句编辑级修订，须全部门禁通过 + 第十一节 21 问审稿清单逐项过 + meta 标注 `"final_mode": "ai"` 如实留痕，发布时按平台要求披露 AI 辅助，不冒充纯人工手写）。旧版「≥60% 句子重写」无法机检、是假门槛，已废除（本地修订 2026-11-06）。无论哪种模式，AI 直出的正文本身都是最大的指纹来源，定稿环节不许跳过。AI 定稿模式在写入 final/ 前另加一遍「加法修订」（本地修订 2026-11-06）：前面的检查全是减法（删 AI 味），这一遍只做加法三件事——弱动词换硬动词、抽象表述换可核查的具体物（数字/价格/物件名/专名）、本章高潮段把叙述距离推近一档（见 `references/narrative-distance.md`）；只许替换与补笔，不许改动剧情事实、不许新增设定（防事实冲突回潮），改完重跑第 13 步 gate 再导出。人工重写模式可选做。
 
 ## 九、正文分层与目录约定（v2.0）
 
@@ -557,7 +576,7 @@ blocking——违背它们不会被门禁拦，但正文会「对而乏味」，
 书目录/
 ├── 正文/
 │   ├── draft/       ← skill 初稿，首行标 [DRAFT]，不导出
-│   └── final/       ← 人工定稿，导出源
+│   └── final/       ← 定稿，导出源（人工重写或 AI 定稿）
 ├── meta/            ← 温度/爽点/钩子型号等元数据 sidecar
 │                       命名与正文同名、三位零填充：第001章.json
 │                       字段格式见第六节 / templates/meta-sidecar.json
@@ -568,8 +587,10 @@ blocking——违背它们不会被门禁拦，但正文会「对而乏味」，
 ```
 
 - **初稿层**（`正文/draft/`）：skill 产出，给作者做素材/骨架/参考，标 `[DRAFT]`。
-- **定稿层**（`正文/final/`）：人重写，保留情节/爽点/钩子，换掉句式/节奏/段落结构/
-  用词习惯，至少 60% 句子由人重写，保留修改记录。
+- **定稿层**（`正文/final/`）：保留情节/爽点/钩子，换掉句式/节奏/段落结构/
+  用词习惯，保留修改记录。来源在 meta 标注 `final_mode`：`human` = 人工重写（推荐）；
+  `ai` = AI 编辑级定稿（须全门禁 + 21 问审稿全过）。旧版「至少 60% 句子由人重写」
+  无脚本可测，已废除（本地修订 2026-11-06）。
 - **导出层**（`导出/`）：从 `final/` 复制，零元数据、零注释、零工程词，只交付这个。
 
 项目要打包/备份/投稿前，先把 skill 目录移出去。
@@ -647,14 +668,15 @@ blocking——违背它们不会被门禁拦，但正文会「对而乏味」，
 > `NOVEL_FORGE_API_KEY` 时自动跳过并打印人工回退清单，任何输出**不参与**门禁
 > 退出码；第 8–10 问是作者身份问，永远人工。启用后正文段落会发送到所配
 > 端点——书稿敏感，是否启用自行决定。`--dry-run` 可先核对口径不联网。
+> 单次请求超时 60 秒（本地修订 2026-11-06：原 240 秒在端点不可达时会长时间假死）。
 >
 > 用法速查（细纲路径缺省自动推导 `<书根>/细纲/<章名>-细纲.md`）：
 > ```bash
-> S=~/.workbuddy/skills/novel-forge/scripts
+> S=~/workspace/custom-skills/novel-forge/scripts
 > export NOVEL_FORGE_API_KEY=<key>
-> python $S/llm_review.py --provider zhipu --book <书目录> --chapter 12 --coverage  # 细纲兑现核对
-> python $S/llm_review.py --provider zhipu --pair 改前.md 改后.md --outline 细纲.md   # 换位盲评
-> python $S/llm_review.py --provider zhipu --pair v5版.md v6版.md --model deepseek-v4-flash
+> python3 $S/llm_review.py --provider zhipu --book <书目录> --chapter 12 --coverage  # 细纲兑现核对
+> python3 $S/llm_review.py --provider zhipu --pair 改前.md 改后.md --outline 细纲.md   # 换位盲评
+> python3 $S/llm_review.py --provider zhipu --pair v5版.md v6版.md --model deepseek-v4-flash
 > ```
 > **`--provider` 预设**（省得记 base_url，避开踩过的坑）：`zhipu`（智谱官方 + glm-4.6）、
 > `zhipu-flash`（+ glm-4-flash，更快更省）、`tokenhub`（自有网关）。
@@ -679,8 +701,8 @@ blocking——违背它们不会被门禁拦，但正文会「对而乏味」，
 - **不鼓励**涉政、色情、赌博、毒品、自杀自残细节、未成年不良描写
 - 收入表述一律注明「以作者后台实际结算为准」，禁止承诺具体金额或成功率
 - 禁止伪造平台官方文件；不确定处标注「待番茄作家中心公告确认」
-- 赛道热度/平台机制知识截止 **2026-09**，跨 3 个月使用标注「建议联网核实」
-- **AI 合规**：不得输出未经人工改写的 AI 直出正文并标称为可发布内容
+- 赛道热度/平台机制知识截止 **2026-09**（榜单快照 2026-10-07），跨 3 个月使用标注「建议联网核实」。时效复核标注（2026-11-06）：目前仍在窗口内；**2026-12 起视为过期**，过期后开书 / 打分前必须先联网核实赛道榜单与平台机制，并把新快照日期回填 `genre-radar.md` 与 `hit-formula.md`，不许只改日期充数
+- **AI 合规**：AI 定稿（`final_mode: ai`）必须过全部门禁与审稿清单才可交付；发布时按目标平台的现行规则如实披露 AI 辅助创作，不得冒充纯人工手写
 
 ## 十三、失败策略（不允许自行"圆回来"）
 
@@ -706,12 +728,34 @@ blocking——违背它们不会被门禁拦，但正文会「对而乏味」，
 
 四条最容易重犯的，直接放这儿：
 
-- **P18 门禁越严，正文越像 AI**：blocking 只留规格层四条 + lint 八条 + 平台合规一类 = 13 条（清单在第六节）。再加就是把模型逼成填格子——每章硬塞感官、硬凑爽点，反而更像机器。
+- **P18 门禁越严，正文越像 AI**：blocking 只留规格自有 3 项 + lint 8 类 + 平台合规 1 类 = 12 类（清单在第六节；旧「13 条」的重复计数已纠正）。再加就是把模型逼成填格子——每章硬塞感官、硬凑爽点，反而更像机器。
 - **P28 禁词不禁族＝在教模型背替换表**：「忽然」判死而「突然」放行，模型学到的不是「用动作起跳」，是「忽然→突然」。加新词往词族里加，绝不新开一条只禁一个词的规则。
 - **P30 指标一旦可数，就变成优化目标**：凡写成「≥N%」「每章 N 个」的波动类要求，先问一句「模型会不会为了达标造假象」。一律改回诊断问句（「整章一个长句都没有？」）。
 - **P29 每个数字只留一个事实源**：阈值看 `spec_check.THRESHOLDS`，规则数跑 `--list-review-classes`，版本号三处同步 bump。文档改数字前先跑脚本对一遍。
 
 **全量清单**（哪个文件/脚本负责什么）在 `references/index.md`——references 全部条目、templates、examples、scripts 一张表。要找「某个能力在哪」，查它，不要靠猜。
 
-**改完任何脚本**：`python scripts/forge.py selftest` 起步，再按 `pitfalls.md` 第四节回归矩阵加跑对应测试。
+**改完任何脚本**：`python3 scripts/forge.py selftest` 起步，再按 `pitfalls.md` 第四节回归矩阵加跑对应测试。
 
+
+---
+
+## 本地修订（2026-11-08）：文风体检基线
+
+> 来源：《开局无异能》75 章定稿全量体检（报告存该项目 写作体检报告-2026-11-08.md）。机器门禁全绿不等于文风过关——AI 味分三层：词（黑名单可拦）、句式（门禁可拦）、**节奏与结构同质化（只有量化体检能发现）**。
+>
+> **与 P30 的关系（重要）**：下列数字是体检报警线，不是写作配额。写作时用诊断问句自查；写完/收官时跑脚本，触线且无豁免理由（独处、纯战斗章）才回炉。为达标硬塞对话、硬拉长句，就是 P30 说的造假象，与硬塞感官同罪。
+
+新增脚本 `scripts/check-style-metrics.py`（--book 项目 --chapter N 或 --range A-B）：量化对话占比、句长均值/标准差、长句（≥35 字）占比、限频模板词、视线动词、面板行数、账本式章末。报警不阻断，但交付报告必须如实呈现。
+
+体检发现（对标同口径实测：斩神句长 25.6±22.0、长句 29%、对话 48.8%；本书旧稿句长 18.3±11.6、长句约 7%、卷二对话仅 5.8%、面板行卷二 0.1/章、账本式章末 35/75 章）：
+
+1. **对话**：诊断问句「这章谁跟谁说话了？」报警线：单章 <5%（硬）、常规章 <12%、滚动 10 章均值 <15%。
+2. **句长呼吸**：诊断问句「整场有一句长句吗？」报警线：长句比 <15%、句长标准差 <13。
+3. **章末轮换**：诊断问句「上一章是不是也落在账本上？」报警线：记账式收尾滚动 10 章 >2 或连章；同型钩子连用 3 章。
+4. **模板限频**：诊断问句「这几个顺手词这章用了几遍？」报警线：「站了一会儿/看了一会儿/把本子合上/在心里过了一遍/了一下」单章 >1 次；视线动词 >3 次；「心里/心头」直给 >2 次。
+5. **面板存在感**：诊断问句「游戏层这章露脸了吗？」报警线：面板行 = 0。
+6. **开头轮换**：诊断问句「最近十章开头是不是都一个样？」报警线：环境/时间式滚动 10 章 >4 章。
+7. **配角声线与幽默**：主要配角各定一个句式标记；诊断问句「最近十章主角自嘲过吗？」（危机章除外）。
+
+流程沉淀：每卷收官跑一次 check-style-metrics 全卷汇总，结论写进该卷复盘；单章交付时跑当章，报警项在报告中逐条说明（豁免理由或已回炉）。

@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import argparse
 
-# 智谱官方价（元 / 百万 token），2026-10 口径
+# 智谱官方价（元 / 百万 token），2026-10 口径快照，仅作量级估算；2026-12 后使用前先核对官网现价
 PRICES = {
     "GLM-5.3 旗舰":        {"in": 8.0, "out": 28.0, "cache": 2.0},
     "GLM-5.3 旗舰（缓存命中）": {"in": 8.0, "out": 28.0, "cache": 2.0, "use_cache": True},

@@ -26,14 +26,14 @@
 把本仓库克隆到 skill 目录即可（DeepSeek Harness / WorkBuddy 均按目录识别 skill）：
 
 ```bash
-git clone git@github.com:hzyr0703-cmd/novel-forge.git ~/.workbuddy/skills/novel-forge
+git clone git@github.com:hzyr0703-cmd/novel-forge.git ~/workspace/custom-skills/novel-forge
 ```
 
 ## 更新与同步流程
 
 本仓库既是 skill 本体又是同步载体，约定流程：
 
-1. **改完就提交**：版本号三处同步（`CHANGELOG.md` 首个 `## vX.Y` / `SKILL.md` frontmatter `version:` / commit 标题），跑 `python scripts/check-doc-consistency.py` 过了再 commit。
+1. **改完就提交**：版本号三处同步（`CHANGELOG.md` 首个 `## vX.Y` / `SKILL.md` frontmatter `version:` / commit 标题），跑 `python3 scripts/check-doc-consistency.py` 过了再 commit。
 2. **提交就推送**：`git push origin main`。远程走 SSH（`git@github.com:hzyr0703-cmd/novel-forge.git`），本机 `~/.ssh/config` 已把 github.com 路由到 `ssh.github.com:443`（HTTPS 443 阻断期间 SSH 可用）。
 3. **换机恢复**：`git pull` 即拿到最新版；本仓库不依赖本机路径（书项目路径、对标语料路径均在各项目侧，不入库）。
 4. **identity 用仓库级**：`git config user.name hzyr0703-cmd && git config user.email hzyr0703-cmd@users.noreply.github.com`（不加 `--global`）。

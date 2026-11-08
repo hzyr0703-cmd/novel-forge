@@ -22,7 +22,7 @@
           "id": "python-cli-probe",
           "type": "cli",
           "required": true,
-          "command": "python",
+          "command": "python3",
           "min_version": "3.10",
           "name": "Python 运行时"
         }
@@ -32,14 +32,14 @@
         "official_docs_url": "https://docs.python.org/3/using/windows.html",
         "download_url": "https://www.python.org/downloads/",
         "steps": [
-          "从 python.org/downloads 下载 Windows 安装包",
-          "安装时勾选 Add python.exe to PATH",
-          "重开终端使 PATH 生效"
+          "本机（Linux）先跑 python3 --version 确认 ≥ 3.10（当前已装 3.12）",
+          "如缺失，用系统包管理器或 python.org 官方包安装 Python ≥ 3.10",
+          "重开终端后重跑 check_environment.py 确认 ready"
         ],
-        "verify": "python --version 输出 ≥ 3.10；python scripts/check_environment.py 返回 ready",
-        "security": "仅使用官方安装包；本技能脚本不读写凭据、不访问网络",
-        "verified_at": "2026-10-06",
-        "applies_to_version": "1.0.0"
+        "verify": "python3 --version 输出 ≥ 3.10；python3 scripts/check_environment.py 返回 ready",
+        "security": "仅使用官方安装包；核心门禁脚本不读写凭据、不访问网络。可选功能例外：llm_review.py（语义审稿）与 recall.py（向量检索）在用户自行配置 API 密钥后会读取凭据并联网发送文本，默认关闭，不配密钥时自动跳过/降级本地检索",
+        "verified_at": "2026-11-06",
+        "applies_to_version": "4.5.1"
       },
       "degradation": [
         {
@@ -118,10 +118,10 @@
           "从 nodejs.org 下载 LTS 安装包",
           "安装后重开终端使 PATH 生效"
         ],
-        "verify": "node --version 输出 ≥ v18；python scripts/check_environment.py 返回 ready",
+        "verify": "node --version 输出 ≥ v18；python3 scripts/check_environment.py 返回 ready",
         "security": "仅使用官方安装包；lint 脚本只读写项目内正文文件，不访问网络",
-        "verified_at": "2026-10-06",
-        "applies_to_version": "1.0.0"
+        "verified_at": "2026-11-06",
+        "applies_to_version": "4.5.1"
       },
       "degradation": [
         {

@@ -11,17 +11,17 @@
 不要手写 transaction JSON。流程是：
 
 ```bash
-S=~/.workbuddy/skills/novel-forge/scripts
+S=~/workspace/custom-skills/novel-forge/scripts
 
 # 1) 先建追踪（导入已有稿件时用；新书从第 1 章开始可跳过，直接 draft）
-python $S/tracking_commit.py init --project <书目录> --input templates/tracking-init.json
+python3 $S/tracking_commit.py init --project <书目录> --input templates/tracking-init.json
 
 # 2) 每写完一章，让脚本按当前状态生成预填单
-python $S/tracking_commit.py draft --project <书目录> --chapter N --output 追踪/工作区/N.json
+python3 $S/tracking_commit.py draft --project <书目录> --chapter N --output 追踪/工作区/N.json
 
 # 3) 你只补 delta 里该改的字段（结果、承诺、角色变化、伏笔、时间线、约束）
 # 4) 提交
-python $S/tracking_commit.py commit --project <书目录> --input 追踪/工作区/N.json
+python3 $S/tracking_commit.py commit --project <书目录> --input 追踪/工作区/N.json
 ```
 
 `draft` 会把角色快照、伏笔、时间线的**当前值**预填好——你只写变化，

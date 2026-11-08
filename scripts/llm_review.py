@@ -61,7 +61,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 
 DEFAULT_BASE_URL = "https://lai-hub.lenovomm.com/v1"
 DEFAULT_MODEL = "glm-5.3-flash"
-TIMEOUT = 240
+TIMEOUT = 60  # 本地修订 2026-11-06：原 240s 在端点不可达时单次调用可挂 4 分钟（--pair 两轮近 8 分钟）；60s 快速失败，advisory 层不值得长挂
 
 # 供应商预设：--provider 一键配好端点与模型，省得记 base_url（踩过的坑）
 #   智谱官方：key 打 token-hub 会 401，必须用 open.bigmodel.cn
