@@ -13,6 +13,7 @@ import argparse, glob, os, re, statistics, sys
 LIMIT_WORDS = ['站了一会儿', '看了一会儿', '把本子合上', '在心里过了一遍', '了一下']
 GAZE = ['看着', '盯着', '望着', '看了一眼', '看了看', '看向']
 INNER = ['心里想', '在心里', '心头', '心里']
+RELOOK = ['又看了一遍', '又对了一遍', '再点开', '又点开', '点开一遍', '一个字一个字看']
 
 def chapter_metrics(text):
     t = re.sub(r'\s', '', text)
@@ -31,6 +32,8 @@ def chapter_metrics(text):
         'gaze': sum(text.count(w) for w in GAZE),
         'inner': sum(text.count(w) for w in INNER),
         'notebook_ending': bool(re.search(r'(账|行情本|笔记本|拼法账)', tail)),
+        'xiangpa': text.count('像怕'),
+        'relook': sum(text.count(w) for w in RELOOK),
     }
 
 def report(ch, m, quiet=False):
@@ -44,6 +47,8 @@ def report(ch, m, quiet=False):
     if m['gaze'] > 3: warns.append(f"视线动词 {m['gaze']} 次 > 3")
     if m['inner'] > 2 + m['limits']['了一下'] * 0:  # 心里/心头标签
         pass
+    if m['xiangpa'] > 1: warns.append(f"「像怕…」{m['xiangpa']} 次 > 1（比喻家族成片，P31）")
+    if m['relook'] > 1: warns.append(f"复看动作 {m['relook']} 次 > 1（复述式扩句，P31）")
     if m['panel'] == 0: warns.append("面板行 0（游戏层隐形，仅提示）")
     if not quiet:
         print(f"ch{ch}: 字数 {m['chars']} | 句长 {m['avg_sent']:.1f}±{m['sent_sd']:.1f} | 长句 {m['long_ratio']*100:.0f}% | "
