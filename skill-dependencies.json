@@ -39,7 +39,7 @@
         "verify": "python3 --version 输出 ≥ 3.10；python3 scripts/check_environment.py 返回 ready",
         "security": "仅使用官方安装包；核心门禁脚本不读写凭据、不访问网络。可选功能例外：llm_review.py（语义审稿）与 recall.py（向量检索）在用户自行配置 API 密钥后会读取凭据并联网发送文本，默认关闭，不配密钥时自动跳过/降级本地检索",
         "verified_at": "2026-11-06",
-        "applies_to_version": "4.5.1"
+        "applies_to_version": "4.6.2"
       },
       "degradation": [
         {
@@ -121,7 +121,7 @@
         "verify": "node --version 输出 ≥ v18；python3 scripts/check_environment.py 返回 ready",
         "security": "仅使用官方安装包；lint 脚本只读写项目内正文文件，不访问网络",
         "verified_at": "2026-11-06",
-        "applies_to_version": "4.5.1"
+        "applies_to_version": "4.6.2"
       },
       "degradation": [
         {

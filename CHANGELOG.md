@@ -1,8 +1,72 @@
 # novel-forge CHANGELOG
 
 > 从 SKILL.md 实操坑位清单与正文版本标注蒸馏而成，不新增发明内容。
-> 详细的翻车原理见 `references/pitfalls.md` P1–P31（v3.1 起自 SKILL.md 第十四节迁出），此处只留版本脉络。
+> 详细的翻车原理见 `references/pitfalls.md` P1–P32（v3.1 起自 SKILL.md 第十四节迁出），此处只留版本脉络。
 > **版本号三处必须同步**：本文件首个 `## vX.Y` / `SKILL.md` frontmatter `version` / git commit 标题。
+
+## v4.6.2
+
+> 主题：**对齐番茄作家学院两篇公告**——8 条投稿硬伤里已有 5 条被现有门禁覆盖，
+> 把剩下 3 条（章首模板化、短对话堆砌、极短段/专名串写）补成机器可查，全部 advisory。
+
+- `scripts/check-ai-patterns.js` 新增 `short-dialogue-run`（`readability`）：连续 4 段纯台词
+  短段（引号内 ≤22 字）、中间无动作/神态/场景即报。实现要点：空行**不打断**计数（台词本就
+  一句一段），只有面板行/分割线才 flush——初版把空行当 flush，规则永不触发。
+  lint 规则数 28 → **29 类**（blocking 仍 8 类，去重后 gate blocking 仍 12 类）。
+- 新增 `scripts/check-editorial.py`（stdlib，退出码恒 0，`--book/--chapter/--range/--layer/
+  --names/--json`）：E1 章首轮换（滚动 10 章内对话开场 <2 或时间/环境起手 >5）、
+  E2 极短段（≤6 字叙述段单章 >5，排除面板与纯台词）、E3 专名变体（≥3 字人名、同长度、
+  姓相同、只差一字；2 字名不参与，误报太多只能人读）。
+- 引号统一（源项目 105 章）：`「」` 2624 处 → `“”`，其中嵌套在双引号内的转 `‘’`；
+  现全书 `“”` 7891 对、残留 `「」` 0、无不平衡文件；备份在项目 `_backup-quotes-20261117/`。
+  改动仅标点，`check-style-metrics` 前后一致（ch105 1871 字 / 19.3±18.2 / 长句 16% 不变）。
+- 文档同步：`references/deslop.md`（29 类全表补 `short-dialogue-run`，
+  readability 8→9 条）、`references/index.md`（scripts 表补 `check-editorial.py`）、
+  `references/health-baselines.md` 新增第三条本地修订「编辑层三查」、
+  `references/gates-and-spec.md` 与 `SKILL.md` 的规则数 28→29。
+- `forge.py selftest` 新增 17a–17c（章首轮换报建议 / 长名字写串检出 / 短对话堆砌报 advisory 不阻断），
+  现共 **23 组**全过；`check-doc-consistency.py` 全绿。
+- 源项目实测（105 章）：`check-editorial.py` 报 章首轮换 1 条（前 10 章对话开场 0）、
+  极短段 2 章（68/72）、专名变体 0；lint 的 `short-dialogue-run` 命中 6 章（010/018/027/046/102/105）。
+- 版本 4.6.1 → 4.6.2（SKILL.md frontmatter / README.md / skill-dependencies.json 三处同步）。
+
+## v4.6.1
+
+> 主题：**存量书迁移流程**——补上「老项目第一次接内容构成门禁」这一步，并记录实测。
+
+- `references/content-composition.md` 新增第七节「存量书迁移」：三步（`--audit` 体检 →
+  按「章节目标」人工判读一行标签 → 卷级 `volume_check` 填现状快照），并写明
+  **关键词自动判定不可用**（9 章对照只对 4 章，把「听证」判成纸面、「对账」判成谈话）。
+- 实测依据（某 103 章存量书）：24 章被 C3 拦下、集中在卷三；卷三 `antagonist_defeat: 0`
+  触发 R2 阻断——与该书读者反馈的「流水线感严重」对得上，说明规则抓的是真问题。
+- 版本 4.6.0 → 4.6.1（SKILL.md / README.md / skill-dependencies.json 三处同步）。
+
+## v4.6.0
+
+> 主题：**常驻层瘦身 + 内容构成门禁**——诊断「内容过载→生成平庸」：不是内容太多，
+> 是规则平权、配额化、必读链过长，且权重全押在文笔侧。
+> 实测：SKILL.md 30,339 字符 → **11,049 字符**（−64%，257 行）；强制型指令（必须/禁止/不许/
+> 不得/一律/强制）**69 处 → 16 处**；细则一条未删，整体下沉到 references。
+
+- **减**：`SKILL.md` 五、六节 → `gates-and-spec.md`；七节 → `writing-craft.md`；
+  十一节 → `review-checklist.md`；两条本地修订 → `health-baselines.md`。
+  常驻层只留路由表、4 条 blocking、判断问句；版本 4.5.1 → 4.6.0。
+- **换**：8 条正向「配额句」（每章至少一处闲笔／每章 ≥2 爽点／对话 20–55% …）全部
+  改写为诊断问句；advisory 表保留参照基线，但每格配一句「写作时问自己」——落实 P30
+  「指标可数就变成优化目标」。
+- **加**：新增 `references/content-composition.md`（三条读者侧判据 R1 公开验证 / R2 反派
+  败绩 / R3 成长可见 + 五条章级规则 C1–C5 + 细纲 YAML 字段 + 卷级 `volume_check`）；
+  新增 `scripts/check-content-composition.py`（outline / `--layer` / `--volume` 三模式，
+  stdlib，退出码仅阻断项非 0）；`forge.py gate` 的 outline 阶段接入内容构成判定（阻断项
+  进 errors，正文层只出 advisory），新增 `--skip-composition`。
+- **自检**：`forge.py selftest` 20 组全过，含新增 16a–16d（event_count=0 + 连续纸面章阻断 /
+  连续两章谈话阻断 / 老项目未填字段按 advisory 放行 / 卷级 volume_check 未填放行、违约阻断 / `--audit` 存量体检只报告不阻断）；
+  `check-doc-consistency.py` 全绿（规则 28 类中 8 条 blocking、段长/字数/首章带宽/平台四取值对齐）。
+- **P32 入库**：`pitfalls.md` 新增 P32「常驻层的规则会平权」——把本次诊断（69 处强制指令 → 16 处、
+  配额句 → 问句）固化，防止以后再把「每章至少 N 个…」加回 SKILL.md。
+- 依据：项目实测——卷二章长 1854±44（CV 2.4%）、章中钩子 0.5 占 68/102、三重回报同组
+  86%、环境/时间起手 97%、对话 14.4%（对标 48.8%）；内容层 102 章有名反派败绩 0、
+  正式下域 1 次、Lv.3 后成长冻结 65 章、卷三纸面词密度 4.37/千字（卷一 0.98）。
 
 ## v4.5.1
 

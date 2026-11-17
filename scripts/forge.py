@@ -297,6 +297,38 @@ def run_platform(book):
         return {"findings": [], "blocking": 0, "warns": 0, "error": "输出解析失败"}
 
 
+def run_composition(book, chapter, layer=None):
+    """调用 check-content-composition.py —— 内容构成门禁。
+
+    与 lint / spec 不同轴：那两者问「文字像不像人」，这一层问「这一章有没有发生事」。
+    实测句子层零命中、分布层全绿的书照样掉追更，缺的就是这一层
+    （判据与规则见 references/content-composition.md）。
+
+    细纲阶段（layer=None）脚本在细纲未填 scenario/event_count 时自动降级为 advisory，
+    老项目不会被一次打断；填了字段后才启用「什么都没发生」与「连续纸面章」阻断。
+    """
+    exe = os.path.join(CWD, "check-content-composition.py")
+    if not os.path.exists(exe):
+        return {"ok": True, "blocking": 0, "blocks": [], "warns": [], "lines": [],
+                "skipped": "script-missing"}
+    cmd = [sys.executable, exe, "--book", book, "--chapter", str(chapter)]
+    if layer:
+        cmd += ["--layer", layer]
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8")
+    except FileNotFoundError:
+        return {"ok": True, "blocking": 0, "blocks": [], "warns": [], "lines": [],
+                "skipped": "no-python"}
+    out = [l for l in (p.stdout or "").splitlines() if l.strip()]
+    if p.returncode == 2:
+        return {"ok": True, "blocking": 0, "blocks": [], "warns": [], "lines": out,
+                "skipped": (p.stderr or "script-error").strip()[:120]}
+    blocks = [l.split("[阻断]", 1)[1].strip() for l in out if "[阻断]" in l]
+    warns = [l.split("[建议]", 1)[1].strip() for l in out if "[建议]" in l]
+    return {"ok": p.returncode == 0, "blocking": len(blocks), "blocks": blocks,
+            "warns": warns, "lines": out}
+
+
 def cmd_gate(args):
     """细纲门禁：复刻 oh-story 那个阻断式 hook 的语义。
 
@@ -333,6 +365,15 @@ def cmd_gate(args):
         # 细纲需含字数目标，否则字数检查无基准
         if not re.search(r"字数(范围|目标)", text):
             warns.append("细纲未写「字数范围」行，字数检查将回退到默认带（±15%）。")
+
+    # 内容构成门禁（细纲阶段）：管「这一章有没有发生事」。
+    # 放在细纲存在之后、连续性风险之前——细纲缺失本身已是更硬的错误，
+    # 此时不跑构成检查，免得报两条根因相同的错。
+    comp_outline = None
+    if outline_ok and not getattr(args, "skip_composition", False):
+        comp_outline = run_composition(book, args.chapter)
+        for b in comp_outline["blocks"]:
+            errors.append("内容构成｜%s" % b)
 
     # 连续性风险：未解决的伏笔不得悬空到下一章开头
     ctx = os.path.join(book, "追踪", "上下文.md")
@@ -388,7 +429,12 @@ def cmd_gate(args):
                 errors.append("%s正文含 %d 处 blocking AI 味命中，必须改到 0。" % (tag, lr["blocking"]))
             for msg in sr["errors"]:
                 errors.append("%s硬规格｜%s" % (tag, msg))
-            layer_reports.append({"layer": layer, "path": body[0], "lint": lr, "spec": sr})
+            # 正文层的构成自查（纸面段占比/数字问答）：只出 advisory，
+            # 因为纸面段判定是启发式，写探索性章节时允许一次性超带。
+            comp_body = run_composition(book, args.chapter, layer=layer) \
+                if not getattr(args, "skip_composition", False) else None
+            layer_reports.append({"layer": layer, "path": body[0], "lint": lr, "spec": sr,
+                                  "composition": comp_body})
         if layer_reports:
             lint_result = layer_reports[0]["lint"]
             spec_result = layer_reports[0]["spec"]
@@ -448,6 +494,14 @@ def cmd_gate(args):
                   % (tag, st.get("字数", "-"), st.get("对话占比", "-"), beats,
                      st.get("章末钩子型号", "-"), st.get("感官", "-"), st.get("三重回报", "-"),
                      st.get("情绪温度", "-")))
+    if comp_outline is not None:
+        if comp_outline.get("skipped"):
+            print("  内容构成      : 跳过（%s）" % comp_outline["skipped"])
+        elif comp_outline["blocking"] > 0:
+            print("  内容构成      : 阻断 %d 项（细纲没发生事 / 连续纸面章）" % comp_outline["blocking"])
+        else:
+            extra = (" ｜ %d 条建议" % len(comp_outline["warns"])) if comp_outline["warns"] else ""
+            print("  内容构成      : 通过%s" % extra)
     if cross_result is not None:
         if cross_result.get("skipped"):
             print("  跨章复述      : 跳过（无正文目录，outline 阶段正常）")
@@ -488,6 +542,16 @@ def cmd_gate(args):
         _tag = ("[%s] " % _rep["layer"]) if len(_spec_layers) > 1 else ""
         for w in _spec["warns"]:
             print("  [提示] %s硬规格｜%s" % (_tag, w))
+    if comp_outline and comp_outline.get("warns"):
+        for w in comp_outline["warns"]:
+            print("  [提示] 内容构成｜%s" % w)
+    for _rep in layer_reports:
+        comp = _rep.get("composition")
+        if not comp or not comp.get("warns"):
+            continue
+        _tag = ("[%s] " % _rep["layer"]) if len(layer_reports) > 1 else ""
+        for w in comp["warns"]:
+            print("  [提示] %s内容构成｜%s" % (_tag, w))
     if tone_result and tone_result.get("findings"):
         for f in tone_result["findings"]:
             unit = f.get("unit", "每千字")
@@ -1500,6 +1564,110 @@ def _run_selftest_cases(tmp, cases):
                   out_diff.strip().splitlines()[-1][:44] if out_diff.strip() else ""))
 
 
+    # ---- 用例 16（v4.6）：内容构成门禁 —— 细纲「什么都没发生」、连续纸面章、老项目兼容、卷级
+    comp = os.path.join(tmp, "composition")
+    os.makedirs(comp, exist_ok=True)
+
+    def _mk_book(name, outlines):
+        b = os.path.join(comp, name)
+        os.makedirs(os.path.join(b, "细纲"), exist_ok=True)
+        for ch, head in outlines.items():
+            with open(os.path.join(b, "细纲", "第%03d章细纲.md" % ch), "w", encoding="utf-8") as f:
+                f.write(head)
+        return b
+
+    def _outline(sc, ec):
+        y = ""
+        if sc is not None:
+            y += "scenario: %s\n" % sc
+        if ec is not None:
+            y += "event_count: %s\n" % ec
+        return "# 第 N 章细纲\n\n```yaml\n" + y + "```\n\n- 情节点一\n"
+
+    def _run_comp(*argv):
+        p = subprocess.run([sys.executable, os.path.join(CWD, "check-content-composition.py")] + list(argv),
+                           capture_output=True, text=True, encoding="utf-8")
+        return p.returncode, (p.stdout or "") + (p.stderr or "")
+
+    # 16a：第 2 章 event_count=0 且前章为谈话 → 必须阻断（B1 + C3 两条）
+    ba = _mk_book("blocked", {1: _outline("谈话", 1), 2: _outline("纸面", 0)})
+    rca, outa = _run_comp("--book", ba, "--chapter", "2")
+    cases.append(("用例16a 内容构成：event_count=0 + 连续纸面章被阻断",
+                  rca == 1 and "B1" in outa and "C3" in outa, outa.strip().splitlines()[-1][:44]))
+
+    # 16b：只有连续谈话/纸面（event_count 正常）也要阻断
+    bb = _mk_book("talkrun", {1: _outline("谈话", 1), 2: _outline("谈话", 2)})
+    rcb, outb = _run_comp("--book", bb, "--chapter", "2")
+    cases.append(("用例16b 内容构成：连续两章谈话被阻断", rcb == 1 and "C3" in outb,
+                  outb.strip().splitlines()[-1][:44]))
+
+    # 16c：老项目细纲未填字段 → advisory 放行（不能因未迁移把整个存量项目拦死）
+    bc = _mk_book("legacy", {1: "# 第 1 章细纲\n\n- 情节点一\n"})
+    rcc, outc = _run_comp("--book", bc, "--chapter", "1")
+    cases.append(("用例16c 内容构成：老项目未填字段按 advisory 放行",
+                  rcc == 0 and "未填" in outc, outc.strip().splitlines()[-1][:44]))
+
+    # 16d：卷级 volume_check —— 未填放行、填了且违约阻断
+    bd = os.path.join(comp, "vol")
+    os.makedirs(os.path.join(bd, "卷纲"), exist_ok=True)
+    with open(os.path.join(bd, "卷纲", "卷1-测试卷纲.md"), "w", encoding="utf-8") as f:
+        f.write("# 卷1\n\n- 卷首\n")
+    rdd, outd = _run_comp("--book", bd, "--volume")
+    with open(os.path.join(bd, "卷纲", "卷1-测试卷纲.md"), "w", encoding="utf-8") as f:
+        f.write("# 卷1\n\n```yaml\npublic_validation: 1\nantagonist_defeat: 0\n"
+                "growth_steps: 0\nlongest_no_event_run: 2\n```\n")
+    rde, oute = _run_comp("--book", bd, "--volume")
+    cases.append(("用例16d 卷级 volume_check：未填放行、违约阻断",
+                  rdd == 0 and rde == 1 and "R1" in oute and "R2" in oute,
+                  "unfilled=%s violated=%s" % (rdd, rde)))
+
+    # 16e：存量迁移体检 --audit —— 全未填要能数清，且不阻断（退出码 0）
+    rce, outce = _run_comp("--book", bc, "--audit")
+    cases.append(("用例16e 内容构成 --audit：存量项目缺字段只报告不阻断",
+                  rce == 0 and "已填 scenario" in outce and "0 / 1" in outce,
+                  outce.strip().splitlines()[1][:44]))
+
+
+    # ---- 用例 17（v4.6.2）：编辑层三查（check-editorial.py）与短对话堆砌 lint
+    ed = os.path.join(tmp, "editorial")
+    ed_final = os.path.join(ed, "正文", "final")
+    os.makedirs(ed_final, exist_ok=True)
+
+    def _run_ed(*argv):
+        q = subprocess.run([sys.executable, os.path.join(CWD, "check-editorial.py")] + list(argv),
+                           capture_output=True, text=True, encoding="utf-8")
+        return q.returncode, (q.stdout or "") + (q.stderr or "")
+
+    # 17a：E1 章首轮换 —— 10 章全用时间/环境起手，必须报建议
+    for i in range(1, 11):
+        with open(os.path.join(ed_final, "第%03d章.md" % i), "w", encoding="utf-8") as f:
+            f.write("清早，街上起了一层薄雾，砖缝里的水还没退。\n\n他推开门，往巷口走。\n")
+    r17a, o17a = _run_ed("--book", ed)
+    cases.append(("用例17a 编辑层 E1：10 章全环境起手报章首轮换建议",
+                  r17a == 0 and ("对话开场 0" in o17a or "章首" in o17a), o17a.strip().splitlines()[-1][:44]))
+
+    # 17b：E3 专名变体 —— 长名字写串了要抓，2 字名不参与
+    with open(os.path.join(ed_final, "第001章.md"), "w", encoding="utf-8") as f:
+        f.write("清早，陆久章坐在门口，把手里的册子翻了一页。\n\n他抬头看了看天。\n")
+    r17b, o17b = _run_ed("--book", ed, "--names", "陆九章", "林灼", "严律")
+    cases.append(("用例17b 编辑层 E3：长名字写串（陆久章）被检出",
+                  "陆久章" in o17b and "陆九章" in o17b, o17b.strip().splitlines()[-1][:44]))
+
+    # 17c：短对话堆砌 lint —— 连续 4 段纯台词短段要报 advisory，且不阻断
+    dlgbook = os.path.join(ed, "dlg")
+    os.makedirs(os.path.join(dlgbook, "正文", "final"), exist_ok=True)
+    dlg_file = os.path.join(dlgbook, "正文", "final", "第001章.md")
+    with open(dlg_file, "w", encoding="utf-8") as f:
+        f.write("“走吧。”\n\n“嗯。”\n\n“去哪儿。”\n\n“不知道。”\n\n他推开门，外面的风灌进来。\n")
+    lp = subprocess.run(["node", os.path.join(CWD, "check-ai-patterns.js"),
+                         "--fail-on=blocking", dlg_file],
+                        capture_output=True, text=True, encoding="utf-8")
+    lout = (lp.stdout or "") + (lp.stderr or "")
+    cases.append(("用例17c 短对话堆砌 lint：连续4段纯台词报 advisory 不阻断",
+                  "short-dialogue-run" in lout and lp.returncode == 0,
+                  "rc=%s" % lp.returncode))
+
+
 # ---------------------------------------------------------------- CLI
 
 def main():
@@ -1522,6 +1690,8 @@ def main():
                    help="跳过中文AI腔密度检测（advisory 层，一般无需跳过）")
     g.add_argument("--skip-platform", action="store_true",
                    help="跳过平台合规检测（meta混入+导流；正式交付勿开）")
+    g.add_argument("--skip-composition", action="store_true",
+                   help="跳过内容构成检测（细纲 event_count/纸面章）；调试期可用，正式交付勿开")
     g.set_defaults(func=cmd_gate)
 
     h = sub.add_parser("hitrate", help="15 维爆款命中率复核")

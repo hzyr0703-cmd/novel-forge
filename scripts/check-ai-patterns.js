@@ -334,6 +334,16 @@ const OVERCOMPRESSED_PROSE_SHORT_MAX_CHARS = 15;
 const OVERCOMPRESSED_PROSE_SHORT_RATIO = 0.58;
 const OVERCOMPRESSED_PROSE_PARTICLE_PER_KILO = 85;
 
+// 短对话堆砌（2026-11-17 补，来源：番茄作家学院「投稿前必查：告别文风呆板」课程 2 下）。
+// 判据照课程原话：多组短对话连续出现、一句一段、台词之间没有动作/神态/场景穿插，像对着剧本念词。
+// 只数「纯台词段」——整段除引号里的台词外没有任何引号外叙述；长台词不算（长台词自带信息量）。
+// 课程的明确豁免：念信/读纸条/内心独白不是对话；短信、电话、弹幕、论坛留言、围观喊话本就一句一句，
+// 属于合理写法 → 所以此规则永远是 advisory，命中后先判体裁功能，再决定合并或插动作。
+const SHORT_DIALOGUE_RUN_MIN = 4;
+const SHORT_DIALOGUE_MAX_CHARS = 22;
+const DIALOGUE_OPEN_CHARS = new Set(['「', '“', '『', '"']);
+const DIALOGUE_CLOSE_CHARS = new Set(['」', '”', '』', '"']);
+
 // 低连接密度：单纯低功能词会误抓有大量中长句的文本；
 // 因此必须叠加“中长句不足”，并只看引号外叙述。这是 overcompressed 的短窗口补充，只做 advisory。
 const LOW_CONNECTIVE_FUNCTION_TERMS = ['的', '了', '就', '在', '是', '也', '都', '还', '又', '把', '被', '给', '这个', '那个', '里面', '以后', '时候', '现在', '因为', '所以', '但是', '不过', '然后', '已经', '还是', '起来', '出来', '下去'];
@@ -473,6 +483,7 @@ const QUOTE_EMPHASIS_SPEECH_VERB_PATTERN = /[说道问喊答念叫回吼骂写�
 //   low-connective-density-tic   semantic    同上，连接词补不补要看读感
 //   quote-emphasis-tic           semantic    标语/转述载体的引号是正常写法
 //   formulaic-parallelism        semantic    工整并列可能承担辩解或悬念排除
+//   short-dialogue-run           semantic    论坛/短信/围观喊话本就一句一句，先判体裁功能
 const REVIEW_CLASSES = Object.freeze({
   'hard-banned-word': 'mechanical',
   'not-is-comparison': 'mechanical',
@@ -498,6 +509,7 @@ const REVIEW_CLASSES = Object.freeze({
   'low-connective-density-tic': 'semantic',
   'quote-emphasis-tic': 'semantic',
   'formulaic-parallelism': 'semantic',
+  'short-dialogue-run': 'semantic',
   'crowd-sync-tic': 'semantic',
   'filter-verb-tic': 'semantic',
   'decorative-symbol': 'mechanical',
@@ -532,6 +544,7 @@ const CATEGORIES = Object.freeze({
   'system-notice-formality-tic': 'readability',
   'overcompressed-prose-tic': 'readability',
   'low-connective-density-tic': 'readability',
+  'short-dialogue-run': 'readability',
   'decorative-symbol': 'readability',
   'micro-action-tic': 'cliche',
   'cliche-density-tic': 'cliche',
@@ -867,6 +880,7 @@ function scanProsePatterns(proseLines) {
   findings.push(...findTrailerEnding(proseLines));
   findings.push(...findQuoteEmphasisTic(proseLines));
   findings.push(...findPeriodStutter(proseLines));
+  findings.push(...findShortDialogueRun(proseLines));
   findings.push(...findMicroActionTic(proseLines));
   findings.push(...findNegationPairTic(proseLines));
   findings.push(...findStockReactionTic(proseLines));
@@ -1764,6 +1778,62 @@ function findAbstractSummaryTic(proseLines) {
     message: `抽象总结复读：命运/棋局/这一刻终于明白/才刚刚开始等作者总结 ${hits} 处（${perKilo.toFixed(1)}/千字）；回到角色当下可见的文件、动作、对话或物理后果，别替读者盖章。`,
     excerpt: compact(samples.join(' | ')),
   }];
+}
+
+// 短对话堆砌：连续 ≥SHORT_DIALOGUE_RUN_MIN 段「纯台词短段」＝一句一段、无动作神态穿插。
+// 纯台词段 = 去掉引号内容后，引号外没有任何叙述字符；短台词 = 引号内可见字符 ≤ 22。
+function findShortDialogueRun(proseLines) {
+  const findings = [];
+  let runLen = 0;
+  let runStartLine = null;
+  const runSamples = [];
+
+  const flush = () => {
+    if (runLen >= SHORT_DIALOGUE_RUN_MIN) {
+      findings.push({
+        line: runStartLine,
+        column: 1,
+        type: 'short-dialogue-run',
+        severity: 'advisory',
+        message: `短对话堆砌：连续 ${runLen} 段纯台词短段、中间没有动作/神态/场景穿插；`
+          + '先判定体裁（论坛留言、短信弹幕、围观喊话、念信读纸属合理写法，可留）；'
+          + '若是人物面对面来回，就把其中几段合并、或插一个动作/神态/环境细节，别让两人对着念词。',
+        excerpt: compact(runSamples.join(' | ')),
+      });
+    }
+    runLen = 0;
+    runStartLine = null;
+    runSamples.length = 0;
+  };
+
+  for (const { text, lineNo } of proseLines) {
+    const trimmed = text.trim();
+    // 空行是段落间呼吸，不打断「连续台词」的计数（台词本来就是一句一段）。
+    if (!trimmed) continue;
+    if (isDivider(trimmed) || isStructural(trimmed) || /^【[^】]+】$/.test(trimmed)) {
+      flush();
+      continue;
+    }
+    const outside = stripQuoted(trimmed).trim();
+    const first = trimmed[0];
+    const pureDialogue = outside.length === 0
+      && DIALOGUE_OPEN_CHARS.has(first)
+      && DIALOGUE_CLOSE_CHARS.has(trimmed[trimmed.length - 1]);
+    if (!pureDialogue) {
+      flush();
+      continue;
+    }
+    const inner = trimmed.slice(1, -1);
+    if (visibleLength(inner) > SHORT_DIALOGUE_MAX_CHARS) {
+      flush();
+      continue;
+    }
+    if (runLen === 0) runStartLine = lineNo;
+    runLen += 1;
+    if (runSamples.length < 6) runSamples.push(trimmed);
+  }
+  flush();
+  return findings;
 }
 
 function findPeriodStutter(proseLines) {

@@ -98,3 +98,34 @@
 - 拆解结论不回写进本书的正文/追踪——对标库只是参考，
   本书事实以 `追踪/_tracking-state.json` 为唯一来源。
 - 一本书一份库，不把两本对标书拆进同一个目录。
+
+## 附录：存量书导入与对标拆文命令全量（2026-11-15 自 SKILL.md 第二节迁出）
+
+
+**存量书冷启动接管**（已有几百章的连载/完本旧稿接进追踪体系）——只回填近
+N 章，更早的事实由 recall.py 检索层承接，不重建全量台账：
+
+```bash
+S=~/workspace/custom-skills/novel-forge/scripts
+# 1) 脚本侧：盘点（章号/断号/字数）+ 本书文风基线 + 回填清单 + init 预填单
+python3 $S/import_manuscript.py prepare --project <书目录> --source <原稿目录|单文件> [--recent 20]
+# 2) 模型侧：按 .story/import/回填章节清单.md 精读近 20 章，填 init-skeleton.json
+#    （八步协议见 .story/import/init-填写说明.md）
+# 3) 提交与校验：
+python3 $S/tracking_commit.py init --project <书目录> --input .story/import/init-skeleton.json
+python3 $S/import_manuscript.py verify --project <书目录>   # TODO 残留/章号对齐/悬置线拦截
+python3 $S/forge.py truth --book <书目录> && python3 $S/recall.py index --project <书目录>
+```
+
+**对标书拆文**（建剧情模块库）——脚本管统计，模型管语义：
+
+```bash
+# 确定性层：文风基线.json + 文风.md + 拆文报告.md（含语义层待办清单）
+python3 $S/analyze_book.py --book <对标书目录> --out <书目录>/对标/<书名>
+# 语义层（角色卡/剧情线/金手指/爽点抽样）：references/book-teardown.md 七步待办
+```
+
+`文风基线.json` 与 human-baseline.json 同 schema。`forge.py dist` 在 `--book`
+模式下**自动优先**用 `<书目录>/文风基线.json` 当对比基准（存量书导入时由
+prepare 生成）——「像不像这一本」比「像不像人类」灵敏；拆文产物放在
+`对标/<书名>/文风基线.json`，需要贴着对标书写时用 `--baseline` 显式指定。

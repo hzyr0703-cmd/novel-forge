@@ -1,6 +1,6 @@
 # 资源地图与脚本索引
 
-> 定位：本文件是 **v3.1 从 SKILL.md 第十五、十六节迁出的全量索引**。
+> 定位：本文件是 **v3.1 从 SKILL.md 第十五、十六节迁出的全量索引**；v4.6 起 SKILL.md 常驻层的细则（门禁规格 / 写作约束 / 审稿清单 / 体检基线）也整体下沉到本目录（`gates-and-spec.md`、`writing-craft.md`、`review-checklist.md`、`health-baselines.md`），SKILL.md 只留路由与问句。
 >
 > SKILL.md 只保留「什么时候读哪个」的路由表（第四节）；本文件回答「这个仓库里到底有什么、每个文件/脚本负责什么」。
 >
@@ -21,9 +21,14 @@
 | `opening-surgery.md` | 黄金三章手术、五句链、钩子 12 型、爽点桥段、三重回报 |
 | `continuity.md` | **作者真相双时间线**（原创）、伏笔协同、典型事故修法 |
 | `recall-and-debt.md` | **写前检索与债务压力**：捞什么、还哪笔、紧急度怎么算 |
-| `deslop.md` | **28 类 lint 规则全表**（与 `--list-review-classes` 一致）、按 `category` 分四类（ai-tone/cliche/literary/readability，改法完全不同）、`--diff` 前后对比用法、操作顺序 |
+| `deslop.md` | **29 类 lint 规则全表**（与 `--list-review-classes` 一致）、按 `category` 分四类（ai-tone/cliche/literary/readability，改法完全不同）、`--diff` 前后对比用法、操作顺序 |
 | `rejected-signals.md` | **X 级已否决清单（v3.0）**：10 条「看起来像 AI 味、配对复测后人类反而更多或无差异」的特征 + 推翻依据 + 落地约束。**加规则前必须先查这里**，否则会把真人写法改坏。守卫脚本 `test-rejected-signals.py` |
-| `pitfalls.md` | **实操坑位 P1–P31**（v3.1 从 SKILL.md 迁出）：落盘与追踪、检测算法、判据方向三类翻车记录 + 改完跑什么的回归矩阵。**改规则/改脚本/怀疑判据方向前必读** |
+| `pitfalls.md` | **实操坑位 P1–P32**（v3.1 从 SKILL.md 迁出）：落盘与追踪、检测算法、判据方向三类翻车记录 + 改完跑什么的回归矩阵。**改规则/改脚本/怀疑判据方向前必读** |
+| `gates-and-spec.md` | **门禁与单章规格明细（v4.6 自 SKILL.md 五、六节下沉）**：全部命令、`--stage/--platform` 取值、hitrate 四纪律、agent 代演表、blocking 12 类逐条、category 四分类、advisory 表（每个数字配诊断问句）、meta sidecar 字段。**阈值以 `spec_check.THRESHOLDS` 为准** |
+| `writing-craft.md` | **写作约束全表（v4.6 自 SKILL.md 七节下沉）**：正向八问（原「正向约束」，配额句全改诊断问句）、人性六条 H1–H6、结构三条 S1–S3、镜头一条、禁止词族（位置×词族表）、禁止句式 7 型、禁止结构。**写正文前读一遍** |
+| `review-checklist.md` | **交付前审稿（v4.6 自 SKILL.md 十一节下沉）**：三轮视角（读者/编辑/对家）、21 问全文（基础十/人性五/失控三/结构三）、v4.6 新增内容构成 4 问、`llm_review.py` 三模式与红线 |
+| `health-baselines.md` | **文风体检基线（v4.6 自 SKILL.md 两条本地修订下沉）**：2026-11-08 七条报警线（对话/句长/章末轮换/模板限频/面板/开头/配角声线）、2026-11-10 扩句禁复述与比喻限频 + P31。**是检测线不是写作配额** |
+| `content-composition.md` | **内容构成判据（v4.6 新增）**：三条读者侧判据 R1 公开验证 / R2 反派败绩 / R3 成长可见（各带根因、反例形态、正确形态、细纲字段）、五条章级规则 C1–C5、细纲 YAML 头与卷级 `volume_check` 字段。**接进 `gate --stage outline` 与 `check-content-composition.py`** |
 | `plot-recovery.md` | 卡文素材库、势能台阶表、重写保护流程、实盘数据回流 |
 | `style-refit.md` | **文笔回改手册**（v2.4.3）：删复述就是补长句、四类动作、验收线、回改坑位 R1–R6 |
 | `chinese-prose-craft.md` | **中文文笔原则库**（v1.0）：余光中三美德/欧化病清单、汪曾祺语态论、流水句与节奏、回改映射表 |
@@ -71,12 +76,14 @@
 | `check-cross-diversity.py` | **跨章多样性检测**（advisory）：开头/结尾方式不得连续 3 章同型、章长不得连续 5 章同档、爽点类型不得连续 3 章同类、对话风格（长短句×口癖）不得连续 3 章同型。读 `meta/第N章.json` 取开头/结尾/爽点类型，缺失时回退正文启发式 |
 | `collect-baseline.py` | **人类基线采集器**：从本地语料（每本书一子目录）采集句长/段长/章长/对话占比分布，生成 `human-baseline.json`。`--show` 核查现有基线来源、`--dry-run` 先看数字、`--split-chapters` 支持整本单文件 |
 | `llm_review.py` | **可选 LLM 语义审稿层**（默认关闭，无 `NOVEL_FORGE_API_KEY` 即跳过）。三模式：①单稿审稿（审稿 1–7 问预审 + 语义反模式线索）②`--coverage` 细纲兑现核对（情节点逐条判 landed/summarized/missing + 越界加戏检测，细纲路径自动推导）③`--pair A B` 配对换位盲评（换位各评一次，一致才判胜负；`--model` 换评委家族）。纯标准库 urllib 直发 OpenAI 兼容端点（默认 token-hub）。**只产 advisory，不参与门禁退出码**；`--dry-run` 核对口径不联网。书稿会发送到所配端点，自行决定启用 |
-| `check-ai-patterns.js` | AI 味检测（**28 类规则**，MIT vendored；`--list-review-classes` 是唯一事实源，文档里的数字必须与它一致）。`filter-verb-tic` 抓过滤器动词（看见/听见/感到/觉得/注意到/发现/意识到…）：一段内 ≥3 **种**即报、整章 ≥6/千字即报，同一动词排比不算，对应 narrative-distance.md。`crowd-sync-tic` 抓「群体同步词」（全场哗然/鸦雀无声/齐刷刷/无人敢 单次即报；所有人/众人/全都/人群 密度型），对应 human-reaction.md |
+| `check-ai-patterns.js` | AI 味检测（**29 类规则**，MIT vendored；`--list-review-classes` 是唯一事实源，文档里的数字必须与它一致）。`filter-verb-tic` 抓过滤器动词（看见/听见/感到/觉得/注意到/发现/意识到…）：一段内 ≥3 **种**即报、整章 ≥6/千字即报，同一动词排比不算，对应 narrative-distance.md。`crowd-sync-tic` 抓「群体同步词」（全场哗然/鸦雀无声/齐刷刷/无人敢 单次即报；所有人/众人/全都/人群 密度型），对应 human-reaction.md |
 | `check-degeneration.js` | 模型退化检测（复读/截断/占位/工程词泄漏），**章内**视角 |
 | `check-crossrepeat.py` | **跨章**自我复述检测（段级 MinHash/Jaccard）。补现有门禁的系统性盲区——AI 复述前文章节时每章内部都不重复，单文件视角 100% 漏检。v2.4.1 起支持 `--since N` 增量（日常 0.2s/章）与 banding 候选剪枝（>40 章自动启用，(b,r) 由阈值自动推导，判定逻辑不变） |
 | `check-factconflicts.py` | 事实冲突检测（story-skills 判定移植）：死人复活、回收早于埋设、状态矛盾。只报告不改数据 |
 | `check-chinese-tone.py` | 中文 AI 腔密度检测（lieflat 11 项特征移植，283 万字语料背书）：翻案腔、冒号提示语、段首零回指评论、结构同款等。advisory 层不阻断。对话层豁免 |
 | `check-platform-compliance.py` | **平台合规检测**（gate 最后一道闸）：meta 混入（TODO/本章字数/作者的话/键值行泄漏）+ 站外导流组合（平台词+联系方式）+ 审核敏感形态。**对话层不豁免**——平台机审不区分引号内外，引号内导流命中以 dialogue_divert 规则上报，报告含对话层扫描行数。blocking 阻断，warn 高误报区人工确认 |
+| `check-content-composition.py` | **内容构成检测（v4.6）**：四模式（另有 `--audit` 存量迁移体检，统计各章缺 `scenario`/`event_count`，只报告退出码 0）——默认 outline（读细纲 YAML 头：`event_count=0` 阻断、相邻两章皆谈话/纸面阻断、滚动 5 章无实战/滚动 10 章独处超限 advisory、缺字段降级 advisory）、`--layer draft\|final`（纸面段占比 ≤25%、数字问答 ≤1、纸面形态一致性，全 advisory）、`--volume N`（读卷纲 `volume_check` 块：公开验证 <2 / 反派败绩 <1 / 成长间隔超限 / 连续谈话超限 阻断，缺字段报未填）。退出码仅阻断项非 0 |
+| `check-editorial.py` | **投稿前必查（编辑层体检，v4.6.2）**：三条对齐番茄作家学院两篇公告的 advisory 检查——E1 章首轮换（滚动 10 章内对话开场 <2 或时间/环境起手 >5 报建议）、E2 极短段（≤6 字叙述段，排除面板与纯台词，单章 >5 报）、E3 专名变体（≥3 字人名、同长度、姓相同、只差一字）。`--book/--chapter/--range/--layer/--names/--json`，退出码恒 0 |
 | `check-registry-coverage.py` | **登记覆盖检查**（v2.4.2 新增，advisory-only 不进退出码）：审计「正文有、台账无」的登记遗漏——①近 N 章时间线零登记的静默章 ②注册角色在末章高频出现但该章无任何登记 ③百家姓形态高频 token 疑似新角色未建卡。`--book <书目录> [--chapter N] [--recent 10]`。全部引擎以「事实已登记」为前提，本脚本是该前提的巡检 |
 | `normalize-punctuation.js` | 标点归一（去味前必跑） |
 | `style-whitelist.js` | `.deslop-whitelist` 加载（依赖项） |

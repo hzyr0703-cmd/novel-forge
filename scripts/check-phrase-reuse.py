@@ -14,6 +14,24 @@ def clean(text):
     s = re.sub(r'\[DRAFT\]|第\d+章.*', '', s)
     return re.sub(r'[^一-鿿A-Za-z0-9]', '', s)
 
+# 有意锚点白名单（2026-11-10 定版）：伏笔挂点与母题复现，命中只标注不计问题。
+WHITELIST = ['词条断口与承接口纹路不合请复检', '听见有人喊你的工号不要回头',
+             '记着三千一百二十八的那一页', '活下去攒够拼法弄清自己为什么是空的',
+             '半件是桥两头都搭着两头都不算到岸', '拼法账账页上熔字后面那一行']
+
+def _common(a, b):
+    best = 0
+    for i in range(len(a)):
+        for j in range(len(b)):
+            k = 0
+            while i+k < len(a) and j+k < len(b) and a[i+k] == b[j+k]:
+                k += 1
+            best = max(best, k)
+    return best
+
+def is_anchor(ph):
+    return any(_common(ph, w) >= 10 for w in WHITELIST)
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--book', required=True)
@@ -53,12 +71,16 @@ def main():
         for a, b in merged:
             if b - a >= n:
                 out.append((chs, t0[a:b]))
-    if not out:
-        print('[OK] 未检出 ≥%d 字跨章原样复用。' % n)
+    anchors = [(c, p) for c, p in out if is_anchor(p)]
+    probs = [(c, p) for c, p in out if not is_anchor(p)]
+    if not probs:
+        print('[OK] 无问题级跨章复用（另有 %d 处有意锚点复现，不计）。' % len(anchors))
         return
-    print(f'[复用] 检出 {len(out)} 处 ≥{n} 字跨章原样复用（报警不阻断）：')
-    for chs, ph in sorted(out, key=lambda x: -len(x[1]))[:40]:
+    print(f'[复用] 问题级 {len(probs)} 处 ≥{n} 字跨章原样复用（报警不阻断）；有意锚点 {len(anchors)} 处已分开：')
+    for chs, ph in sorted(probs, key=lambda x: -len(x[1]))[:40]:
         print(f"  章 {list(chs)}: 「{ph}」")
+    for chs, ph in sorted(anchors, key=lambda x: -len(x[1]))[:10]:
+        print(f"  [锚点] 章 {list(chs)}: 「{ph}」")
 
 if __name__ == '__main__':
     main()
